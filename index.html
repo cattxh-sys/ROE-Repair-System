@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v9.3 (全功能同步版)</title>
+    <title>LED维修管理系统 v10.4 (管理员增强版)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; }
@@ -24,14 +24,21 @@
         .btn-danger { background: var(--danger); color: white; }
         .btn-outline { background: none; color: var(--primary); border: 1px solid var(--primary); }
         .btn-action { padding: 6px 12px; font-size: 13px; margin-left: 5px; border-radius: 6px; }
+        
+        /* 故障行样式 */
         .fault-row { background: #f0f0f5; padding: 12px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid var(--primary); }
         .flex-container { display: flex; gap: 8px; align-items: center; }
         .col-main { flex: 2.2; }
         .col-qty { flex: 0.8; }
         .col-subtotal { flex: 1.2; }
         .other-input { margin-top: 8px; border: 1px solid var(--warning); background: #fffbe6; }
-        .rma-card { border: 1px solid #e5e5ea; padding: 15px; border-radius: 12px; margin-bottom: 10px; background: #f9f9fb; }
+        
+        /* 卡片样式 (通用) */
+        .rma-card { border: 1px solid #e5e5ea; padding: 15px; border-radius: 12px; margin-bottom: 10px; background: #f9f9fb; border-left: 5px solid var(--primary); cursor: pointer;}
+        .rma-card:hover { background: #f0f0f5; }
         .rma-card-content { display: flex; justify-content: space-between; align-items: center; }
+
+        /* 照片与表格 */
         .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
         .photo-item { position: relative; width: 100%; aspect-ratio: 1; border: 2px dashed #d1d1d6; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f9f9fb; cursor: pointer; }
         .photo-item img { width: 100%; height: 100%; object-fit: cover; }
@@ -42,16 +49,15 @@
         .synced { background: var(--success); }
         .not-synced { background: var(--warning); }
 
-        /* 导出PDF/打印 关键修复：隐藏不需要的部分 */
         @media print {
             body { background: white; padding: 0; }
             .card { box-shadow: none; max-width: 100%; padding: 0; }
-            .no-print, #input_area, .user-bar, .btn-full, #page_login, #page_list, #page_new_rma, #loginBtn, .btn-action { 
+            .no-print, #input_area, .user-bar, .btn-full, #page_login, #page_list, #page_new_rma, #loginBtn, .btn-action, #page_admin { 
                 display: none !important; 
             }
-            .page { display: block !important; } /* 确保打印页显示 */
+            .page { display: block !important; }
             table { font-size: 12px; }
-            .sync-badge { display: none; } /* 打印时不显示同步状态标签 */
+            .sync-badge { display: none; }
         }
     </style>
 </head>
@@ -59,12 +65,35 @@
 
 <div class="card">
     <div id="page_login" class="page active no-print">
-        <h2 style="text-align:center; margin-top:40px;">👤 维修员登录</h2>
+        <h2 style="text-align:center; margin-top:40px;">👤 系统登录</h2>
         <label>用户名</label>
         <input type="text" id="login_user" placeholder="请输入姓名">
         <label>密码</label>
         <input type="password" id="login_pass" placeholder="请输入密码">
         <button class="btn-blue btn-full" id="loginBtn" onclick="secureLogin()">登录系统</button>
+    </div>
+
+    <div id="page_admin" class="page no-print">
+        <div class="user-bar">
+            <span>管理员：<strong id="admin_name">--</strong></span>
+            <button onclick="logout()" style="background:none; color:#ff453a; font-weight:bold; border:none;">退出</button>
+        </div>
+        <h3>📊 任务全览 (二级加载)</h3>
+        <input type="text" id="adminSearch" placeholder="🔍 搜索 RMA 号或维修员..." oninput="filterAdminList()">
+        <div id="admin_rma_list_container"></div>
+    </div>
+
+    <div id="page_admin_detail" class="page">
+        <div class="info-bar no-print">
+            <button onclick="showPage('page_admin')" style="background:none; color:white; border:none;">⬅ 返回列表</button>
+            <strong id="admin_detail_title">详情</strong>
+            <button onclick="window.print()" class="btn-action" style="background:white; color:black;">PDF</button>
+        </div>
+        <h2 id="print_admin_title" style="text-align:center; display:none;" class="print-show">维修报告</h2>
+        <table id="adminDetailTable">
+            <thead><tr><th>时间</th><th>条码</th><th>故障项目</th><th>金额</th><th>维修员</th></tr></thead>
+            <tbody id="adminDetailBody"></tbody>
+        </table>
     </div>
 
     <div id="page_list" class="page no-print">
@@ -80,7 +109,7 @@
     <div id="page_new_rma" class="page no-print">
         <h2 style="text-align:center">🛠 任务初始化</h2>
         <label>请输入新 RMA 单号</label>
-        <input type="text" id="new_rma_input" placeholder="例：RMA-2026-001" autofocus>
+        <input type="text" id="new_rma_input" placeholder="例：RMA-2026-001">
         <button class="btn-blue btn-full" onclick="createNewRMA()">确认创建并进入</button>
         <button class="btn-outline btn-full" onclick="showPage('page_list')">返回</button>
     </div>
@@ -106,7 +135,7 @@
             <div id="faults_container"></div>
             <button class="btn-outline" style="width:100%; padding:8px; margin-bottom:15px;" onclick="addFaultRow()">+ 增加故障项</button>
 
-            <label>3. 维修照片 (录入后自动清空)</label>
+            <label>3. 维修照片</label>
             <div class="photo-grid" id="photo_grid">
                 <div class="photo-item" onclick="document.getElementById('photo_input').click()">📷 点击拍照</div>
             </div>
@@ -134,70 +163,168 @@
 </div>
 
 <script>
+    // 请替换为您部署的 Google Script URL
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
     let records = JSON.parse(localStorage.getItem('led_repair_v92') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
+    let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
     let tempPhotos = [];
+    let allAdminRMAs = []; // 存储管理员获取的索引数据
     const priceMap = { "碰撞死灯": 11, "灯珠故障": 0, "面罩更换": 3, "IC维修": 15, "电路板维修": 15, "其他": 0 };
 
     window.onload = () => {
         if(currentUser) {
-            document.getElementById('display_user').innerText = currentUser;
-            document.getElementById('display_user_entry').innerText = currentUser;
-            showPage('page_list');
+            // 自动登录逻辑升级，增加角色判断
+            if(currentRole === 'admin') {
+                document.getElementById('admin_name').innerText = currentUser;
+                showPage('page_admin');
+                loadAdminRMAList(); // 自动加载管理员数据
+            } else {
+                document.getElementById('display_user').innerText = currentUser;
+                document.getElementById('display_user_entry').innerText = currentUser;
+                showPage('page_list');
+            }
         }
     };
 
-    // 登录逻辑
+    // --- 1. 登录验证 (升级版：支持角色和JSON解析) ---
     async function secureLogin() {
         const user = document.getElementById('login_user').value.trim();
         const pass = document.getElementById('login_pass').value.trim();
         const btn = document.getElementById('loginBtn');
         if(!user || !pass) return alert("请输入账号密码");
-        btn.disabled = true; btn.innerText = "正在核对账户...";
+        
+        btn.disabled = true; btn.innerText = "正在验证...";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`);
-            const result = await resp.text();
-            if(result === "success") {
+            const data = await resp.json(); // 改为解析 JSON
+            
+            if(data.result === "success") {
                 currentUser = user;
+                currentRole = data.role; // 获取角色
                 localStorage.setItem('repair_user', user);
-                document.getElementById('display_user').innerText = user;
-                document.getElementById('display_user_entry').innerText = user;
-                showPage('page_list');
+                localStorage.setItem('repair_role', currentRole);
+                
+                if(currentRole === 'admin') {
+                    document.getElementById('admin_name').innerText = user;
+                    showPage('page_admin');
+                    loadAdminRMAList();
+                } else {
+                    document.getElementById('display_user').innerText = user;
+                    document.getElementById('display_user_entry').innerText = user;
+                    showPage('page_list');
+                }
             } else { alert("账号或密码错误！"); }
-        } catch (e) { alert("网络错误，请检查是否能连接 Google"); }
+        } catch (e) { alert("网络错误"); }
         finally { btn.disabled = false; btn.innerText = "登录系统"; }
     }
 
     function logout() {
         localStorage.removeItem('repair_user');
+        localStorage.removeItem('repair_role');
         currentUser = "";
+        currentRole = "";
         showPage('page_login');
+        location.reload();
     }
+
+    // --- 2. 管理员核心逻辑 (新增) ---
+    
+    // 二级加载第一步：获取 RMA 列表
+    async function loadAdminRMAList() {
+        const container = document.getElementById('admin_rma_list_container');
+        container.innerHTML = "<p style='text-align:center'>正在从云端拉取数据...</p>";
+        try {
+            const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMAList`);
+            allAdminRMAs = await resp.json();
+            renderAdminCards(allAdminRMAs);
+        } catch (e) { container.innerHTML = "<p style='text-align:center;color:red'>加载失败</p>"; }
+    }
+
+    function renderAdminCards(list) {
+        const container = document.getElementById('admin_rma_list_container');
+        if(list.length === 0) { container.innerHTML = "<p>暂无数据</p>"; return; }
+        
+        container.innerHTML = list.map(item => `
+            <div class="rma-card" onclick="loadAdminDetail('${item.name}')">
+                <div class="rma-card-content">
+                    <div>
+                        <strong>${item.name}</strong><br>
+                        <small style="color:#666">维修员: ${item.worker} | 更新: ${new Date(item.lastTime).toLocaleDateString()}</small>
+                    </div>
+                    <div>
+                        <span style="background:var(--primary); color:white; padding:2px 8px; border-radius:10px; font-size:12px;">
+                            ${item.count} 模组
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // 高性能前端搜索 (不消耗流量)
+    function filterAdminList() {
+        const kw = document.getElementById('adminSearch').value.toLowerCase();
+        const filtered = allAdminRMAs.filter(item => 
+            item.name.toLowerCase().includes(kw) || 
+            String(item.worker).toLowerCase().includes(kw)
+        );
+        renderAdminCards(filtered);
+    }
+
+    // 二级加载第二步：获取 RMA 详情
+    async function loadAdminDetail(rmaName) {
+        showPage('page_admin_detail');
+        document.getElementById('admin_detail_title').innerText = rmaName;
+        document.getElementById('print_admin_title').innerText = "维修报告 - " + rmaName;
+        
+        const tbody = document.getElementById('adminDetailBody');
+        tbody.innerHTML = "<tr><td colspan='5' style='text-align:center'>加载明细中...</td></tr>";
+
+        try {
+            const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
+            const details = await resp.json();
+            
+            tbody.innerHTML = details.map(row => `
+                <tr>
+                    <td><small>${new Date(row[6]).toLocaleString()}</small></td>
+                    <td><b>${row[2]}</b></td>
+                    <td>${row[3]}</td>
+                    <td style="color:var(--danger); font-weight:bold;">$${row[4]}</td>
+                    <td>${row[5]}</td>
+                </tr>
+            `).join('');
+        } catch (e) { tbody.innerHTML = "<tr><td colspan='5'>加载失败</td></tr>"; }
+    }
+
+
+    // --- 3. 维修员核心逻辑 (保留原有所有功能) ---
 
     function showPage(id) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(id).classList.add('active');
-        if(currentRMA) {
+        
+        // 特殊处理：打印标题逻辑
+        if(currentRMA && id === 'page_entry') {
             document.getElementById('display_rma').innerText = currentRMA;
-            // PDF 打印标题同步
             document.getElementById('print_rma_title').innerText = "维修报告 - RMA: " + currentRMA;
+            document.getElementById('print_header').style.display = 'block';
         }
-        if(id === 'page_list') renderRMAList();
+        if(id === 'page_list') renderWorkerRMAList();
         if(id === 'page_entry') {
             if(editingId === null) resetForm();
             renderEntryTable();
         }
     }
 
+    // 故障行增加逻辑 (V9.3原版)
     function addFaultRow(typeVal = "碰撞死灯", qtyVal = 1, customPrice = null) {
         const container = document.getElementById('faults_container');
         const rowId = 'row_' + Math.random().toString(36).substr(2, 5);
         const div = document.createElement('div');
-        div.className = 'fault-row';
-        div.id = rowId;
+        div.className = 'fault-row'; div.id = rowId;
         const isStandard = priceMap.hasOwnProperty(typeVal) && typeVal !== '其他';
         const displayType = isStandard ? typeVal : '其他';
         const unitPrice = isStandard ? priceMap[typeVal] : (customPrice || 0);
@@ -274,11 +401,11 @@
             };
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
             const lastIdx = records.findIndex(r => r.id === data.id);
-            records[lastIdx].synced = true;
+            if(lastIdx !== -1) records[lastIdx].synced = true;
             localStorage.setItem('led_repair_v92', JSON.stringify(records));
         } catch (e) {}
 
-        cancelEdit(); // 无论保存还是取消，都调用这个逻辑来清空表单并隐藏按钮
+        cancelEdit();
         renderEntryTable();
         btn.disabled = false; btn.innerText = "保存并同步云端";
     }
@@ -329,7 +456,6 @@
         window.scrollTo(0,0);
     }
 
-    // 修复逻辑：取消修改函数
     function cancelEdit() {
         editingId = null;
         document.getElementById('barcode').value = "";
@@ -355,11 +481,14 @@
     function resetFaultRows() { document.getElementById('faults_container').innerHTML = ""; addFaultRow(); }
     function resetForm() { cancelEdit(); }
     function handleFiles(input) { Array.from(input.files).forEach(file => { const r = new FileReader(); r.onload = (e) => { if(tempPhotos.length<5) tempPhotos.push(e.target.result); renderPhotoGrid(); }; r.readAsDataURL(file); }); }
-    function renderRMAList() {
+    
+    // 渲染维修员的 RMA 列表
+    function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
         const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><b>${rma}</b><button class="btn-action btn-outline" onclick="currentRMA='${rma}'; showPage('page_entry');">进入</button></div></div>`).join('');
     }
+
     function exportSingleRMA() {
         const myData = records.filter(r => r.rma === currentRMA);
         let exportData = myData.map(r => ({ "RMA": r.rma, "SN": r.barcode, "故障": r.faults.map(f => `${f.type}*${f.qty}`).join('; '), "金额": r.moduleTotal, "人": r.user, "时间": r.time }));
