@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v10.1</title>
+    <title>LED维修管理系统 v10.2 (管理员加强版)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; }
@@ -24,15 +24,20 @@
         .btn-outline { background: none; color: var(--primary); border: 1px solid var(--primary); }
         .btn-action { padding: 6px 12px; font-size: 13px; margin-left: 5px; border-radius: 6px; }
         
-        /* 布局与卡片 */
-        .rma-card { border: 1px solid #e5e5ea; padding: 15px; border-radius: 12px; margin-bottom: 10px; background: #f9f9fb; border-left: 5px solid var(--primary); cursor: pointer; }
-        .rma-card:hover { background: #f0f0f5; }
-        .rma-card-content { display: flex; justify-content: space-between; align-items: center; }
+        /* 故障行 UI */
         .fault-row { background: #f0f0f5; padding: 12px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid var(--primary); }
         .flex-container { display: flex; gap: 8px; align-items: center; }
         .col-main { flex: 2.2; }
         .col-qty { flex: 0.8; }
         .col-subtotal { flex: 1.2; }
+        .other-input { margin-top: 8px; border: 1px solid var(--warning); background: #fffbe6; }
+        
+        /* 管理员卡片 UI */
+        .rma-card { border: 1px solid #e5e5ea; padding: 15px; border-radius: 12px; margin-bottom: 10px; background: #f9f9fb; border-left: 5px solid var(--primary); cursor: pointer; }
+        .rma-card:hover { background: #f0f0f5; }
+        .rma-card-content { display: flex; justify-content: space-between; align-items: center; }
+
+        /* 照片网格 */
         .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
         .photo-item { position: relative; width: 100%; aspect-ratio: 1; border: 2px dashed #d1d1d6; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f9f9fb; cursor: pointer; }
         .photo-item img { width: 100%; height: 100%; object-fit: cover; }
@@ -41,11 +46,10 @@
         th, td { border-bottom: 1px solid #e5e5ea; padding: 12px 8px; text-align: left; }
         .total-row { background: #f2f2f7; font-weight: bold; color: var(--danger); }
 
-        /* 打印样式优化 */
         @media print {
-            .no-print, #input_area, #cancelEditBtn, .btn-action, .btn-full { display: none !important; }
+            .no-print, #input_area, .btn-full, .btn-action { display: none !important; }
             body { background: white; padding: 0; }
-            .card { box-shadow: none; max-width: 100%; padding: 0; border-radius: 0; }
+            .card { box-shadow: none; max-width: 100%; padding: 0; }
             .page { display: block !important; }
             table { font-size: 12px; }
         }
@@ -55,10 +59,10 @@
 
 <div class="card">
     <div id="page_login" class="page active no-print">
-        <h2 style="text-align:center; margin-top:40px;">👤 系统登录</h2>
+        <h2 style="text-align:center; margin-top:40px;">👤 维修系统登录</h2>
         <input type="text" id="login_user" placeholder="用户名">
         <input type="password" id="login_pass" placeholder="密码">
-        <button class="btn-blue btn-full" id="loginBtn" onclick="secureLogin()">登录系统</button>
+        <button class="btn-blue btn-full" id="loginBtn" onclick="secureLogin()">登录</button>
     </div>
 
     <div id="page_admin" class="page no-print">
@@ -66,7 +70,7 @@
             <span>管理员：<strong id="admin_name">--</strong></span>
             <button onclick="logout()" style="background:none; color:#ff453a; border:none; font-weight:bold;">退出</button>
         </div>
-        <h3>📊 RMA 任务索引 (二级加载)</h3>
+        <h3>📊 RMA 任务索引 (高性能搜索)</h3>
         <input type="text" id="adminSearch" placeholder="🔍 搜索 RMA 号或维修员姓名..." oninput="filterRMAList()">
         <div id="admin_rma_list_container"></div>
     </div>
@@ -74,13 +78,13 @@
     <div id="page_admin_detail" class="page">
         <div class="info-bar no-print">
             <button onclick="showPage('page_admin')" style="background:none; color:white; border:none;">⬅ 返回列表</button>
-            <span id="admin_detail_title">RMA 明细</span>
-            <button onclick="window.print()" class="btn-action" style="background:white; color:black;">导出 PDF</button>
+            <strong id="admin_detail_title">RMA 明细</strong>
+            <button onclick="window.print()" class="btn-action" style="background:white; color:black;">导出PDF</button>
         </div>
-        <h2 id="print_title_admin" style="text-align:center;">维修报告</h2>
+        <h2 id="print_rma_title_admin" style="text-align:center;">维修报告</h2>
         <table id="adminDetailTable">
             <thead>
-                <tr><th>时间</th><th>条码</th><th>故障详情</th><th>金额</th><th>维修员</th></tr>
+                <tr><th>时间</th><th>条码</th><th>故障项目</th><th>金额</th><th>维修员</th></tr>
             </thead>
             <tbody id="adminDetailBody"></tbody>
         </table>
@@ -92,15 +96,15 @@
             <button onclick="logout()" style="background:none; color:#ff453a; border:none; font-weight:bold;">退出</button>
         </div>
         <h3>我的维修单</h3>
-        <div id="worker_rma_list"></div>
-        <button class="btn-blue btn-full" onclick="showPage('page_new_rma')">+ 新建 RMA</button>
+        <div id="worker_rma_list_container"></div>
+        <button class="btn-blue btn-full" onclick="showPage('page_new_rma')">+ 新建 RMA 维修报告</button>
     </div>
 
     <div id="page_new_rma" class="page no-print">
         <h2 style="text-align:center">🛠 任务初始化</h2>
         <label>请输入新 RMA 单号</label>
         <input type="text" id="new_rma_input" placeholder="例：RMA-2026-001">
-        <button class="btn-blue btn-full" onclick="createNewRMA()">确认创建</button>
+        <button class="btn-blue btn-full" onclick="createNewRMA()">确认创建并进入</button>
         <button class="btn-outline btn-full" onclick="showPage('page_worker_list')">返回</button>
     </div>
 
@@ -118,46 +122,47 @@
 
         <div id="input_area" class="no-print">
             <label>1. 模组条码</label>
-            <input type="text" id="barcode" placeholder="扫描或输入条码">
-            <label>2. 维修项目</label>
+            <input type="text" id="barcode" placeholder="扫描或输入SN码">
+            
+            <label>2. 维修项目与小计 (USD)</label>
             <div id="faults_container"></div>
-            <button class="btn-outline" style="width:100%; margin-bottom:15px;" onclick="addFaultRow()">+ 增加项目</button>
+            <button class="btn-outline" style="width:100%; padding:8px; margin-bottom:15px;" onclick="addFaultRow()">+ 增加故障项</button>
+
             <label>3. 维修照片</label>
             <div class="photo-grid" id="photo_grid">
                 <div class="photo-item" onclick="document.getElementById('photo_input').click()">📷 点击拍照</div>
             </div>
             <input type="file" id="photo_input" class="hidden" accept="image/*" multiple onchange="handleFiles(this)">
+            
             <button class="btn-green btn-full" id="submitBtn" onclick="saveRecord()">保存并同步云端</button>
-            <button id="cancelEditBtn" class="hidden btn-full" onclick="cancelEdit()" style="background:var(--secondary); color:white;">取消修改</button>
+            <button id="cancelEditBtn" class="hidden btn-full" onclick="cancelEdit()" style="background:var(--secondary); color:white; margin-top:10px;">取消修改</button>
         </div>
 
         <table id="recordTable">
             <thead>
-                <tr><th>条码/时间</th><th>详情</th><th>金额</th><th class="no-print">操作</th></tr>
+                <tr><th>条码/时间</th><th>故障明细</th><th>数量</th><th>小计</th><th class="no-print">操作</th></tr>
             </thead>
-            <tbody></tbody>
+            <tbody id="recordTableBody"></tbody>
             <tfoot>
-                <tr class="total-row"><td colspan="2" style="text-align:right">RMA总计:</td><td colspan="2" id="grand_total_display">$0.00</td></tr>
+                <tr class="total-row"><td colspan="3" style="text-align:right">RMA总计:</td><td colspan="2" id="grand_total_display">$0.00</td></tr>
             </tfoot>
         </table>
     </div>
 </div>
 
 <script>
-    // 目标 Google 部署 URL
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
-    
+
     let records = JSON.parse(localStorage.getItem('led_repair_v10') || '[]');
-    let currentUser = "", currentRole = "", currentRMA = "", editingId = null;
-    let tempPhotos = [], allAdminRMAs = [];
+    let currentUser = "", currentRole = "", currentRMA = "", editingId = null, tempPhotos = [];
+    let allAdminRMAs = []; // 存储管理员获取的索引
     const priceMap = { "碰撞死灯": 11, "灯珠故障": 0, "面罩更换": 3, "IC维修": 15, "电路板维修": 15, "其他": 0 };
 
     async function secureLogin() {
         const user = document.getElementById('login_user').value.trim();
         const pass = document.getElementById('login_pass').value.trim();
-        const btn = document.getElementById('loginBtn');
-        if(!user || !pass) return alert("请输入账号密码");
-        btn.disabled = true; btn.innerText = "验证中...";
+        if(!user || !pass) return alert("请填写完整");
+        document.getElementById('loginBtn').innerText = "验证中...";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?username=${user}&password=${pass}`);
             const data = await resp.json();
@@ -169,17 +174,17 @@
                 } else {
                     document.getElementById('display_user').innerText = user;
                     document.getElementById('display_user_entry').innerText = user;
-                    showPage('page_worker_list'); renderWorkerList();
+                    showPage('page_worker_list'); renderWorkerRMAList();
                 }
-            } else { alert("账号密码错误"); }
-        } catch (e) { alert("网络连接失败"); }
-        finally { btn.disabled = false; btn.innerText = "登录系统"; }
+            } else { alert("验证失败"); }
+        } catch (e) { alert("网络错误"); }
+        document.getElementById('loginBtn').innerText = "登录";
     }
 
     // --- 管理员逻辑 ---
     async function loadAdminRMAList() {
         const container = document.getElementById('admin_rma_list_container');
-        container.innerHTML = "<p style='text-align:center'>正在获取 RMA 索引...</p>";
+        container.innerHTML = "加载中...";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMAList`);
             allAdminRMAs = await resp.json();
@@ -207,66 +212,113 @@
 
     async function loadAdminDetail(rmaName) {
         showPage('page_admin_detail');
-        document.getElementById('print_title_admin').innerText = "维修报告 - " + rmaName;
+        document.getElementById('admin_detail_title').innerText = "RMA: " + rmaName;
+        document.getElementById('print_rma_title_admin').innerText = "维修报告 - " + rmaName;
         const tbody = document.getElementById('adminDetailBody');
-        tbody.innerHTML = "<tr><td colspan='5' style='text-align:center'>读取明细中...</td></tr>";
+        tbody.innerHTML = "<tr><td colspan='5' style='text-align:center'>正在获取明细...</td></tr>";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
             const details = await resp.json();
             tbody.innerHTML = details.map(row => `<tr><td><small>${row[0]}</small></td><td><b>${row[2]}</b></td><td>${row[3]}</td><td style="color:var(--danger);font-weight:bold;">$${row[4]}</td><td>${row[5]}</td></tr>`).join('');
-        } catch (e) { alert("调取失败"); }
+        } catch (e) { alert("获取明细失败"); }
     }
 
-    // --- 维修员逻辑 ---
-    function createNewRMA() {
-        const val = document.getElementById('new_rma_input').value.trim();
-        if(val) { currentRMA = val; showPage('page_entry'); resetForm(); }
+    // --- 维修员录入逻辑 (保持 V9.3 UI 和功能) ---
+    function addFaultRow(typeVal = "碰撞死灯", qtyVal = 1, customPrice = null) {
+        const container = document.getElementById('faults_container');
+        const rowId = 'row_' + Math.random().toString(36).substr(2, 5);
+        const div = document.createElement('div');
+        div.className = 'fault-row'; div.id = rowId;
+        const isStandard = priceMap.hasOwnProperty(typeVal) && typeVal !== '其他';
+        const unitPrice = isStandard ? priceMap[typeVal] : (customPrice || 0);
+
+        div.innerHTML = `
+            <div class="flex-container">
+                <div class="col-main"><select class="f_type" onchange="updateRow('${rowId}')">
+                    <option value="碰撞死灯" ${typeVal==='碰撞死灯'?'selected':''}>碰撞死灯 ($11)</option>
+                    <option value="灯珠故障" ${typeVal==='灯珠故障'?'selected':''}>灯珠故障 ($0)</option>
+                    <option value="面罩更换" ${typeVal==='面罩更换'?'selected':''}>面罩更换 ($3)</option>
+                    <option value="IC维修" ${typeVal==='IC维修'?'selected':''}>IC维修 ($15)</option>
+                    <option value="电路板维修" ${typeVal==='电路板维修'?'selected':''}>电路板维修 ($15)</option>
+                    <option value="其他" ${typeVal==='其他'?'selected':''}>其他 (自定义)</option>
+                </select></div>
+                <div class="col-qty"><input type="number" class="f_qty" value="${qtyVal}" min="1" oninput="updateRow('${rowId}')"></div>
+                <div class="col-subtotal">
+                    <input type="number" class="f_price_display" value="${(unitPrice * qtyVal).toFixed(2)}" readonly style="background:#f0f0f5; font-weight:bold; color:var(--danger);">
+                    <input type="hidden" class="f_unit_price" value="${unitPrice}">
+                </div>
+                <div class="no-print" style="cursor:pointer; color:red;" onclick="removeFaultRow('${rowId}')">✕</div>
+            </div>
+            <input type="text" class="f_other_text other-input ${typeVal==='其他'?'':'hidden'}" placeholder="故障描述..." value="${!isStandard ? typeVal : ''}">
+            <div class="other-price-input ${typeVal==='其他'?'':'hidden'}" style="margin-top:5px;">
+                <input type="number" class="f_manual_unit_price" value="${unitPrice}" oninput="updateRow('${rowId}')" placeholder="单价">
+            </div>
+        `;
+        container.appendChild(div);
     }
 
-    function renderWorkerList() {
-        const container = document.getElementById('worker_rma_list');
-        const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
-        container.innerHTML = myRMAs.map(rma => `<div class="rma-card" onclick="currentRMA='${rma}';showPage('page_entry');renderEntryTable();"><div class="rma-card-content"><b>${rma}</b><button class="btn-action btn-outline">进入</button></div></div>`).join('');
+    function updateRow(rowId) {
+        const row = document.getElementById(rowId);
+        const type = row.querySelector('.f_type').value;
+        const qty = parseInt(row.querySelector('.f_qty').value) || 0;
+        let unitPrice = (type === '其他') ? (parseFloat(row.querySelector('.f_manual_unit_price').value) || 0) : priceMap[type];
+        row.querySelector('.f_other_text').classList.toggle('hidden', type !== '其他');
+        row.querySelector('.other-price-input').classList.toggle('hidden', type !== '其他');
+        row.querySelector('.f_unit_price').value = unitPrice;
+        row.querySelector('.f_price_display').value = (unitPrice * qty).toFixed(2);
     }
+
+    function removeFaultRow(id) { if(document.querySelectorAll('.fault-row').length > 1) document.getElementById(id).remove(); }
 
     async function saveRecord() {
         const barcode = document.getElementById('barcode').value.trim();
-        if(!barcode) return alert("条码必填");
+        if(!barcode) return alert("请输入条码");
         const btn = document.getElementById('submitBtn');
         btn.disabled = true; btn.innerText = "同步中...";
 
-        let faults = [], total = 0;
+        let faults = [], moduleTotal = 0;
         document.querySelectorAll('.fault-row').forEach(row => {
-            const type = row.querySelector('.f_type').value;
+            let type = row.querySelector('.f_type').value;
             const qty = parseInt(row.querySelector('.f_qty').value) || 0;
             const up = parseFloat(row.querySelector('.f_unit_price').value) || 0;
-            faults.push({ type, qty }); total += (qty * up);
+            if(type === '其他') type = row.querySelector('.f_other_text').value.trim() || "其他";
+            faults.push({ type, qty, unitPrice: up });
+            moduleTotal += (qty * up);
         });
 
-        const data = { id: editingId || Date.now(), rma: currentRMA, barcode, faults, moduleTotal: total, user: currentUser, time: new Date().toLocaleString(), synced: false };
-        if(editingId) { const idx = records.findIndex(r => r.id === editingId); records[idx] = data; } 
-        else { records.push(data); }
+        const data = { id: editingId || Date.now(), rma: currentRMA, barcode, faults, moduleTotal, user: currentUser, time: new Date().toLocaleString() };
         
+        if(editingId) {
+            const idx = records.findIndex(r => r.id === editingId);
+            records[idx] = data;
+        } else { records.push(data); }
+
         localStorage.setItem('led_repair_v10', JSON.stringify(records));
         try {
-            const p = { action: "save", rma: data.rma, barcode: data.barcode, user: data.user, time: data.time, total: data.moduleTotal, details: data.faults.map(f => `${f.type}*${f.qty}`).join('; ') };
-            await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(p) });
+            const payload = { action: "save", rma: data.rma, barcode: data.barcode, user: data.user, time: data.time, total: data.moduleTotal, details: data.faults.map(f => `${f.type}*${f.qty}`).join('; ') };
+            await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
         } catch (e) {}
-        
+
         cancelEdit(); renderEntryTable();
         btn.disabled = false; btn.innerText = "保存并同步云端";
     }
 
     function renderEntryTable() {
         document.getElementById('display_rma').innerText = currentRMA;
-        const tbody = document.querySelector('#recordTable tbody');
+        const tbody = document.getElementById('recordTableBody');
         const myData = records.filter(r => r.rma === currentRMA);
-        let gTotal = 0;
+        let grandTotal = 0;
         tbody.innerHTML = myData.map(r => {
-            gTotal += r.moduleTotal;
-            return `<tr><td><b>${r.barcode}</b><br><small>${r.time}</small></td><td>${r.faults.map(f=>f.type).join(',')}</td><td style="color:var(--danger);font-weight:bold;">$${r.moduleTotal}</td><td class="no-print"><button class="btn-action btn-outline" onclick="editIt(${r.id})">改</button></td></tr>`;
+            grandTotal += r.moduleTotal;
+            return `<tr>
+                <td><b>${r.barcode}</b><br><small>${r.time}</small></td>
+                <td>${r.faults.map(f => f.type).join('<br>')}</td>
+                <td>${r.faults.map(f => f.qty).join('<br>')}</td>
+                <td style="color:var(--danger);font-weight:bold;">$${r.moduleTotal.toFixed(2)}</td>
+                <td class="no-print"><button class="btn-action btn-outline" onclick="editIt(${r.id})">改</button></td>
+            </tr>`;
         }).reverse().join('');
-        document.getElementById('grand_total_display').innerText = `$${gTotal.toFixed(2)}`;
+        document.getElementById('grand_total_display').innerText = `$${grandTotal.toFixed(2)}`;
     }
 
     function editIt(id) {
@@ -274,6 +326,8 @@
         if(!r) return;
         editingId = r.id;
         document.getElementById('barcode').value = r.barcode;
+        document.getElementById('faults_container').innerHTML = "";
+        r.faults.forEach(f => addFaultRow(f.type, f.qty, f.unitPrice));
         document.getElementById('submitBtn').innerText = "确认修改";
         document.getElementById('cancelEditBtn').classList.remove('hidden');
         window.scrollTo(0,0);
@@ -288,17 +342,36 @@
         document.getElementById('cancelEditBtn').classList.add('hidden');
     }
 
-    function addFaultRow() {
-        const div = document.createElement('div');
-        div.className = 'fault-row';
-        div.innerHTML = `<div class="flex-container"><div class="col-main"><select class="f_type"><option value="碰撞死灯">碰撞死灯 ($11)</option><option value="灯珠故障">灯珠故障 ($0)</option><option value="其他">其他</option></select></div><div class="col-qty"><input type="number" class="f_qty" value="1"></div><input type="hidden" class="f_unit_price" value="11"></div>`;
-        document.getElementById('faults_container').appendChild(div);
+    function createNewRMA() {
+        const val = document.getElementById('new_rma_input').value.trim();
+        if(val) { currentRMA = val; showPage('page_entry'); cancelEdit(); }
     }
 
-    function resetForm() { cancelEdit(); }
-    function showPage(id) { document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+    function renderWorkerRMAList() {
+        const container = document.getElementById('worker_rma_list_container');
+        const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
+        container.innerHTML = myRMAs.map(rma => `<div class="rma-card" onclick="currentRMA='${rma}';showPage('page_entry');renderEntryTable();"><div class="rma-card-content"><b>${rma}</b><button class="btn-action btn-outline">进入</button></div></div>`).join('');
+    }
+
+    function showPage(id) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    function handleFiles(input) {
+        Array.from(input.files).forEach(file => {
+            const r = new FileReader();
+            r.onload = (e) => { if(tempPhotos.length < 5) tempPhotos.push(e.target.result); renderPhotoGrid(); };
+            r.readAsDataURL(file);
+        });
+    }
+
+    function renderPhotoGrid() {
+        const grid = document.getElementById('photo_grid');
+        grid.innerHTML = tempPhotos.map((src, i) => `<div class="photo-item"><img src="${src}"><div class="no-print" style="position:absolute;top:0;right:0;background:red;color:white;padding:2px 5px;" onclick="tempPhotos.splice(${i},1);renderPhotoGrid()">✕</div></div>`).join('') + (tempPhotos.length < 5 ? `<div class="photo-item no-print" onclick="document.getElementById('photo_input').click()">📷 点击拍照</div>` : '');
+    }
+
     function logout() { location.reload(); }
-    function handleFiles(i) {} // 预留拍照逻辑
 </script>
 </body>
 </html>
