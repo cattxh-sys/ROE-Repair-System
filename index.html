@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v9.1 (原版功能+账户版)</title>
+    <title>LED维修管理系统 v9.2 (全功能同步版)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        /* 保持你原有的所有样式不变 */
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; }
         body { font-family: -apple-system, system-ui, sans-serif; background: #f2f2f7; margin: 0; padding: 15px; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); max-width: 800px; margin: auto; min-height: 90vh; }
@@ -59,7 +58,7 @@
     <div id="page_list" class="page">
         <div class="user-bar">
             <span>操作员：<strong id="display_user">--</strong></span>
-            <button onclick="logout()" style="background:none; color:#ff453a; font-weight:bold; border:none; width:auto; padding:0;">退出登录</button>
+            <button onclick="logout()" style="background:none; color:#ff453a; font-weight:bold; border:none; width:auto;">退出登录</button>
         </div>
         <h3>我的维修任务清单</h3>
         <div id="rma_list_container"></div>
@@ -101,7 +100,7 @@
             </div>
             <input type="file" id="photo_input" class="hidden" accept="image/*" multiple onchange="handleFiles(this)">
             
-            <button class="btn-green btn-full" id="submitBtn" onclick="saveRecord()">保存此模组记录</button>
+            <button class="btn-green btn-full" id="submitBtn" onclick="saveRecord()">保存并同步云端</button>
             <button id="cancelEditBtn" class="hidden btn-full" onclick="cancelEdit()" style="background:var(--secondary); color:white;">取消修改</button>
         </div>
 
@@ -123,14 +122,12 @@
     // --- 配置中心 ---
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    // 初始化数据
-    let records = JSON.parse(localStorage.getItem('led_repair_v91') || '[]');
+    let records = JSON.parse(localStorage.getItem('led_repair_v92') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRMA = "", editingId = null;
     let tempPhotos = [];
     const priceMap = { "碰撞死灯": 11, "灯珠故障": 0, "面罩更换": 3, "IC维修": 15, "电路板维修": 15, "其他": 0 };
 
-    // 页面加载逻辑
     window.onload = () => {
         if(currentUser) {
             document.getElementById('display_user').innerText = currentUser;
@@ -139,14 +136,13 @@
         }
     };
 
-    // 新增：登录逻辑
+    // 登录逻辑
     async function secureLogin() {
         const user = document.getElementById('login_user').value.trim();
         const pass = document.getElementById('login_pass').value.trim();
         const btn = document.getElementById('loginBtn');
-        if(!user || !pass) return alert("请输入账号和密码");
-
-        btn.disabled = true; btn.innerText = "正在验证...";
+        if(!user || !pass) return alert("请输入账号密码");
+        btn.disabled = true; btn.innerText = "正在核对账户...";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`);
             const result = await resp.text();
@@ -156,14 +152,9 @@
                 document.getElementById('display_user').innerText = user;
                 document.getElementById('display_user_entry').innerText = user;
                 showPage('page_list');
-            } else {
-                alert("账号或密码错误！");
-            }
-        } catch (e) {
-            alert("登录失败，请确保可以访问 Google 服务");
-        } finally {
-            btn.disabled = false; btn.innerText = "登录系统";
-        }
+            } else { alert("账号或密码错误！"); }
+        } catch (e) { alert("网络错误，请检查是否能连接 Google"); }
+        finally { btn.disabled = false; btn.innerText = "登录系统"; }
     }
 
     function logout() {
@@ -172,17 +163,19 @@
         showPage('page_login');
     }
 
-    // --- 以下完全是你原版的业务逻辑函数 ---
-
+    // 页面切换
     function showPage(id) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(id).classList.add('active');
         if(currentRMA) document.getElementById('display_rma').innerText = currentRMA;
         if(id === 'page_list') renderRMAList();
-        if(id === 'page_entry' && editingId === null) resetFaultRows();
-        if(id === 'page_entry') renderEntryTable();
+        if(id === 'page_entry') {
+            if(editingId === null) resetFaultRows();
+            renderEntryTable();
+        }
     }
 
+    // 动态增加故障行
     function addFaultRow(typeVal = "碰撞死灯", qtyVal = 1, customPrice = null) {
         const container = document.getElementById('faults_container');
         const rowId = 'row_' + Math.random().toString(36).substr(2, 5);
@@ -212,7 +205,7 @@
             </div>
             <input type="text" class="f_other_text other-input ${displayType==='其他'?'':'hidden'}" placeholder="故障描述..." value="${!isStandard ? typeVal : ''}">
             <div class="other-price-input ${displayType==='其他'?'':'hidden'}" style="margin-top:5px;">
-                <input type="number" class="f_manual_unit_price" value="${unitPrice}" oninput="updateRow('${rowId}')" placeholder="输入单价">
+                <input type="number" class="f_manual_unit_price" value="${unitPrice}" oninput="updateRow('${rowId}')" placeholder="单价">
             </div>
         `;
         container.appendChild(div);
@@ -229,6 +222,7 @@
         row.querySelector('.f_price_display').value = (unitPrice * qty).toFixed(2);
     }
 
+    // 保存记录并同步
     async function saveRecord() {
         const barcode = document.getElementById('barcode').value.trim();
         if(!barcode) return alert("条码必填");
@@ -251,18 +245,17 @@
             photos: [...tempPhotos], synced: false 
         };
 
+        // 本地保存
         if(editingId !== null) {
             const idx = records.findIndex(r => r.id === editingId);
             records[idx] = data;
-        } else {
-            records.push(data);
-        }
-        
-        localStorage.setItem('led_repair_v91', JSON.stringify(records));
+        } else { records.push(data); }
+        localStorage.setItem('led_repair_v92', JSON.stringify(records));
 
-        // 尝试同步到 Google
+        // 云端同步（新增/修改）
         try {
             const payload = {
+                action: "save",
                 rma: data.rma, barcode: data.barcode, user: data.user,
                 time: data.time, total: data.moduleTotal,
                 details: data.faults.map(f => `${f.type}*${f.qty}`).join('; ')
@@ -270,12 +263,26 @@
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
             const lastIdx = records.findIndex(r => r.id === data.id);
             records[lastIdx].synced = true;
-            localStorage.setItem('led_repair_v91', JSON.stringify(records));
+            localStorage.setItem('led_repair_v92', JSON.stringify(records));
         } catch (e) {}
 
         resetForm();
         renderEntryTable();
-        btn.disabled = false; btn.innerText = "保存此模组记录";
+        btn.disabled = false; btn.innerText = "保存并同步云端";
+    }
+
+    // 同步删除
+    async function deleteModule(idx) {
+        const r = records[idx];
+        if (confirm(`确定删除 [${r.barcode}]？云端数据将同步删除。`)) {
+            try {
+                const p = { action: "delete", rma: r.rma, barcode: r.barcode };
+                fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(p) });
+            } catch (e) {}
+            records.splice(idx, 1);
+            localStorage.setItem('led_repair_v92', JSON.stringify(records));
+            renderEntryTable();
+        }
     }
 
     function renderEntryTable() {
@@ -286,7 +293,7 @@
             grandTotal += r.moduleTotal;
             const realIdx = records.indexOf(r);
             return `<tr>
-                <td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">已云同步</span>':'<span class="sync-badge not-synced">本地</span>'}<br><small>${r.time}</small></td>
+                <td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">已同步</span>':'<span class="sync-badge not-synced">本地</span>'}<br><small>${r.time}</small></td>
                 <td>${r.faults.map(f => f.type).join('<br>')}</td>
                 <td>${r.faults.map(f => f.qty).join('<br>')}</td>
                 <td style="color:var(--danger);font-weight:bold;">$${r.moduleTotal.toFixed(2)}</td>
@@ -300,15 +307,15 @@
         document.getElementById('grand_total_display').innerText = `$${grandTotal.toFixed(2)}`;
     }
 
-    function resetForm() {
-        document.getElementById('barcode').value = "";
-        document.getElementById('photo_input').value = "";
-        tempPhotos = [];
-        renderPhotoGrid();
-        resetFaultRows();
-        editingId = null;
-        document.getElementById('submitBtn').innerText = "保存此模组记录";
-        document.getElementById('cancelEditBtn').classList.add('hidden');
+    function editIt(idx) {
+        const r = records[idx]; editingId = r.id;
+        document.getElementById('barcode').value = r.barcode;
+        tempPhotos = [...r.photos]; renderPhotoGrid();
+        document.getElementById('faults_container').innerHTML = "";
+        r.faults.forEach(f => addFaultRow(f.type, f.qty, f.unitPrice));
+        document.getElementById('submitBtn').innerText = "确认修改并更新云端";
+        document.getElementById('cancelEditBtn').classList.remove('hidden');
+        window.scrollTo(0,0);
     }
 
     function renderPhotoGrid() {
@@ -321,33 +328,17 @@
         `).join('') + (tempPhotos.length < 5 ? `<div class="photo-item" onclick="document.getElementById('photo_input').click()">📷 点击拍照</div>` : '');
     }
 
+    // 辅助函数
     function createNewRMA() { const val = document.getElementById('new_rma_input').value.trim(); if(val) { currentRMA = val; showPage('page_entry'); } }
     function removeFaultRow(id) { if(document.querySelectorAll('.fault-row').length > 1) document.getElementById(id).remove(); }
     function resetFaultRows() { document.getElementById('faults_container').innerHTML = ""; addFaultRow(); }
-    function deleteModule(idx) { if(confirm("删除记录？")) { records.splice(idx, 1); localStorage.setItem('led_repair_v91', JSON.stringify(records)); renderEntryTable(); } }
+    function resetForm() { document.getElementById('barcode').value = ""; tempPhotos = []; renderPhotoGrid(); resetFaultRows(); editingId = null; document.getElementById('cancelEditBtn').classList.add('hidden'); }
+    function handleFiles(input) { Array.from(input.files).forEach(file => { const r = new FileReader(); r.onload = (e) => { if(tempPhotos.length<5) tempPhotos.push(e.target.result); renderPhotoGrid(); }; r.readAsDataURL(file); }); }
     function renderRMAList() {
         const container = document.getElementById('rma_list_container');
         const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
-        container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><b>${rma}</b><div><button class="btn-action btn-outline" onclick="currentRMA='${rma}'; showPage('page_entry');">录入</button></div></div></div>`).join('');
+        container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><b>${rma}</b><button class="btn-action btn-outline" onclick="currentRMA='${rma}'; showPage('page_entry');">进入</button></div></div>`).join('');
     }
-    function editIt(idx) {
-        const r = records[idx]; editingId = r.id;
-        document.getElementById('barcode').value = r.barcode;
-        tempPhotos = [...r.photos]; renderPhotoGrid();
-        document.getElementById('faults_container').innerHTML = "";
-        r.faults.forEach(f => addFaultRow(f.type, f.qty, f.unitPrice));
-        document.getElementById('submitBtn').innerText = "确认修改数据";
-        document.getElementById('cancelEditBtn').classList.remove('hidden');
-        window.scrollTo(0,0);
-    }
-    function handleFiles(input) {
-        Array.from(input.files).forEach(file => {
-            const reader = new FileReader();
-            reader.onload = (e) => { if(tempPhotos.length<5) tempPhotos.push(e.target.result); renderPhotoGrid(); };
-            reader.readAsDataURL(file);
-        });
-    }
-    function cancelEdit() { resetForm(); }
     function exportSingleRMA() {
         const myData = records.filter(r => r.rma === currentRMA);
         let exportData = myData.map(r => ({ "RMA": r.rma, "SN": r.barcode, "故障": r.faults.map(f => `${f.type}*${f.qty}`).join('; '), "金额": r.moduleTotal, "人": r.user, "时间": r.time }));
