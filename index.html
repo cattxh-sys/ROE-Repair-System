@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v8.7</title>
+    <title>LED维修管理系统 v8.8 (云同步版)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; }
@@ -17,6 +17,7 @@
         input, select { width: 100%; padding: 13px; border: 1px solid #d1d1d6; border-radius: 10px; margin-bottom: 5px; box-sizing: border-box; font-size: 16px; }
         .hidden { display: none !important; }
         button { padding: 14px; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-full { width: 100%; margin-top: 10px; }
         .btn-blue { background: var(--primary); color: white; }
         .btn-green { background: var(--success); color: white; }
@@ -37,6 +38,9 @@
         table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 20px; }
         th, td { border-bottom: 1px solid #e5e5ea; padding: 12px 8px; text-align: left; }
         .total-row { background: #f2f2f7; font-weight: bold; color: var(--danger); }
+        .sync-badge { font-size: 10px; padding: 2px 4px; border-radius: 4px; margin-left: 5px; }
+        .synced { background: var(--success); color: white; }
+        .not-synced { background: var(--warning); color: white; }
     </style>
 </head>
 <body>
@@ -116,6 +120,9 @@
 </div>
 
 <script>
+    // --- 配置中心 ---
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
+
     let records = JSON.parse(localStorage.getItem('led_repair_v87') || '[]');
     let currentUser = "", currentRMA = "", editingId = null;
     let tempPhotos = [];
@@ -175,20 +182,14 @@
         row.querySelector('.f_price_display').value = (unitPrice * qty).toFixed(2);
     }
 
-    function resetForm() {
-        document.getElementById('barcode').value = "";
-        document.getElementById('photo_input').value = ""; // 关键：清空文件选择器
-        tempPhotos = []; // 清空数据数组
-        renderPhotoGrid(); // 关键：立即重置预览 UI
-        resetFaultRows();
-        editingId = null;
-        document.getElementById('submitBtn').innerText = "保存此模组记录";
-        document.getElementById('cancelEditBtn').classList.add('hidden');
-    }
-
-    function saveRecord() {
+    async function saveRecord() {
         const barcode = document.getElementById('barcode').value.trim();
+        const submitBtn = document.getElementById('submitBtn');
         if(!barcode) return alert("条码必填");
+
+        submitBtn.disabled = true;
+        submitBtn.innerText = "同步中...";
+
         let faults = [], moduleTotal = 0;
         document.querySelectorAll('.fault-row').forEach(row => {
             let type = row.querySelector('.f_type').value;
@@ -198,21 +199,92 @@
             faults.push({ type, qty, unitPrice });
             moduleTotal += (qty * unitPrice);
         });
-        const data = { rma: currentRMA, barcode, faults, moduleTotal, user: currentUser, time: new Date().toLocaleString(), photos: [...tempPhotos] };
+
+        const data = { 
+            id: Date.now(),
+            rma: currentRMA, 
+            barcode, 
+            faults, 
+            moduleTotal, 
+            user: currentUser, 
+            time: new Date().toLocaleString(), 
+            photos: [...tempPhotos],
+            synced: false 
+        };
+
+        // 保存到本地
         if(editingId !== null) records[editingId] = data; else records.push(data);
         localStorage.setItem('led_repair_v87', JSON.stringify(records));
-        resetForm(); // 调用修复后的重置函数
+        
+        // 尝试同步到云端
+        await syncToCloud(data);
+
+        resetForm();
         renderEntryTable();
+        submitBtn.disabled = false;
+        submitBtn.innerText = "保存此模组记录";
+    }
+
+    async function syncToCloud(data) {
+        if(!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.includes("https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec")) return;
+        
+        // 精简数据用于同步表格 (不传巨型图片Base64以防超时)
+        const payload = {
+            rma: data.rma,
+            barcode: data.barcode,
+            details: data.faults.map(f => `${f.type}*${f.qty}`).join('; '),
+            total: data.moduleTotal,
+            user: data.user,
+            time: data.time
+        };
+
+        try {
+            await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                body: JSON.stringify(payload)
+            });
+            // 更新本地状态为已同步
+            const idx = records.findIndex(r => r.id === data.id);
+            if(idx !== -1) {
+                records[idx].synced = true;
+                localStorage.setItem('led_repair_v87', JSON.stringify(records));
+            }
+        } catch (e) {
+            console.error("同步失败", e);
+        }
+    }
+
+    function renderEntryTable() {
+        const tbody = document.querySelector('#recordTable tbody');
+        const myData = records.filter(r => r.rma === currentRMA);
+        let grandTotal = 0;
+        tbody.innerHTML = myData.map((r, i) => {
+            grandTotal += r.moduleTotal;
+            const realIdx = records.indexOf(r);
+            const syncIcon = r.synced ? '<span class="sync-badge synced">已云同步</span>' : '<span class="sync-badge not-synced">仅本地</span>';
+            return `<tr><td><b>${r.barcode}</b>${syncIcon}<br><small>${r.time}</small></td><td>${r.faults.map(f => f.type).join('<br>')}</td><td>${r.faults.map(f => f.qty).join('<br>')}</td><td style="color:var(--danger);font-weight:bold;">$${r.moduleTotal.toFixed(2)}</td><td>${r.photos.map(p => `<img src="${p}" style="width:35px;height:35px;object-fit:cover;border-radius:4px;">`).join('')}</td><td class="no-print"><button class="btn-action btn-outline" onclick="editIt(${realIdx})">改</button><button class="btn-action btn-danger" onclick="deleteModule(${realIdx})">删</button></td></tr>`;
+        }).reverse().join('');
+        document.getElementById('grand_total_display').innerText = `$${grandTotal.toFixed(2)}`;
+    }
+
+    function resetForm() {
+        document.getElementById('barcode').value = "";
+        document.getElementById('photo_input').value = "";
+        tempPhotos = [];
+        renderPhotoGrid();
+        resetFaultRows();
+        editingId = null;
+        document.getElementById('submitBtn').innerText = "保存此模组记录";
+        document.getElementById('cancelEditBtn').classList.add('hidden');
     }
 
     function renderPhotoGrid() {
         const grid = document.getElementById('photo_grid');
-        // 如果没有照片，恢复“点击拍照”按钮
         if(tempPhotos.length === 0) {
             grid.innerHTML = `<div class="photo-item" onclick="document.getElementById('photo_input').click()">📷 点击拍照</div>`;
             return;
         }
-        // 如果有照片，渲染缩略图 + “添加”按钮
         grid.innerHTML = tempPhotos.map((src, i) => `
             <div class="photo-item">
                 <img src="${src}">
@@ -221,24 +293,12 @@
         `).join('') + (tempPhotos.length < 5 ? `<div class="photo-item" onclick="document.getElementById('photo_input').click()">+</div>` : '');
     }
 
-    // --- 保持其余功能不变 ---
     function login() { currentUser = document.getElementById('user_name').value; if(currentUser) showPage('page_list'); document.getElementById('display_user').innerText = currentUser; document.getElementById('display_user_entry').innerText = currentUser; }
     function logout() { currentUser = ""; showPage('page_login'); }
     function enterRMA(rma) { currentRMA = rma; showPage('page_entry'); renderEntryTable(); }
     function createNewRMA() { const val = document.getElementById('new_rma_input').value.trim(); if(val) enterRMA(val); }
     function removeFaultRow(id) { if(document.querySelectorAll('.fault-row').length > 1) document.getElementById(id).remove(); }
     function resetFaultRows() { document.getElementById('faults_container').innerHTML = ""; addFaultRow(); }
-    function renderEntryTable() {
-        const tbody = document.querySelector('#recordTable tbody');
-        const myData = records.filter(r => r.rma === currentRMA);
-        let grandTotal = 0;
-        tbody.innerHTML = myData.map((r, i) => {
-            grandTotal += r.moduleTotal;
-            const realIdx = records.indexOf(r);
-            return `<tr><td><b>${r.barcode}</b><br><small>${r.time}</small></td><td>${r.faults.map(f => f.type).join('<br>')}</td><td>${r.faults.map(f => f.qty).join('<br>')}</td><td style="color:var(--danger);font-weight:bold;">$${r.moduleTotal.toFixed(2)}</td><td>${r.photos.map(p => `<img src="${p}" style="width:35px;height:35px;object-fit:cover;border-radius:4px;">`).join('')}</td><td class="no-print"><button class="btn-action btn-outline" onclick="editIt(${realIdx})">改</button><button class="btn-action btn-danger" onclick="deleteModule(${realIdx})">删</button></td></tr>`;
-        }).reverse().join('');
-        document.getElementById('grand_total_display').innerText = `$${grandTotal.toFixed(2)}`;
-    }
     function deleteModule(idx) { if(confirm("删除记录？")) { records.splice(idx, 1); localStorage.setItem('led_repair_v87', JSON.stringify(records)); renderEntryTable(); } }
     function deleteRMA(rma) { if(confirm(`删除 RMA [${rma}] 下所有记录？`)) { records = records.filter(r => r.rma !== rma); localStorage.setItem('led_repair_v87', JSON.stringify(records)); renderRMAList(); } }
     function renderRMAList() { const container = document.getElementById('rma_list_container'); const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))]; container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><b>${rma}</b><div><button class="btn-action btn-outline" onclick="enterRMA('${rma}')">录入</button><button class="btn-action btn-danger" onclick="deleteRMA('${rma}')">删除</button></div></div></div>`).join(''); }
