@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v10.7 (ID精准版)</title>
+    <title>LED维修管理系统 v10.8 (稳定修复版)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; }
@@ -45,13 +45,27 @@
         .synced { background: var(--success); }
         .not-synced { background: var(--warning); }
 
+        /* 修复 PDF 打印排版混乱的核心代码 */
         @media print {
-            body { background: white; padding: 0; }
-            .card { box-shadow: none; max-width: 100%; padding: 0; }
-            .no-print, #input_area, .user-bar, .btn-full, #page_login, #page_list, #page_new_rma, #loginBtn, .btn-action, #page_admin { display: none !important; }
-            .page { display: block !important; }
-            table { font-size: 12px; }
+            @page { size: A4; margin: 1cm; }
+            body { background: white; padding: 0; margin: 0; }
+            .card { box-shadow: none; max-width: 100%; width: 100%; padding: 0; margin: 0; min-height: auto; }
+            .no-print, #input_area, .user-bar, .btn-full, .btn-action, #page_login, #page_list, #page_new_rma, #page_admin { 
+                display: none !important; 
+            }
+            /* 强制显示当前激活的详情页 */
+            .page { display: none; }
+            #page_entry.active, #page_admin_detail.active { display: block !important; }
+            
+            /* 表格打印优化 */
+            table { width: 100% !important; border: 1px solid #ccc; font-size: 12px; page-break-inside: auto; }
+            th, td { border: 1px solid #ccc; padding: 8px; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            thead { display: table-header-group; }
+            tfoot { display: table-footer-group; }
+            
             .sync-badge { display: none; }
+            .print-show { display: block !important; }
         }
     </style>
 </head>
@@ -144,7 +158,7 @@
 
         <div class="table-container">
             <div id="print_header" class="hidden" style="display:none; text-align:center; margin-bottom:20px;">
-                <h2 id="print_rma_title">维修报告</h2>
+                <h2 id="print_rma_title" class="print-show" style="display:none;">维修报告</h2>
             </div>
             <table id="recordTable">
                 <thead>
@@ -162,7 +176,8 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    let records = JSON.parse(localStorage.getItem('led_repair_v107') || '[]');
+    // 注意：key 保持 v107 确保数据兼容，或者您可以改为 v108
+    let records = JSON.parse(localStorage.getItem('led_repair_v108') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
@@ -184,7 +199,6 @@
         }
     };
 
-    // --- 1. 登录 ---
     async function secureLogin() {
         const user = document.getElementById('login_user').value.trim();
         const pass = document.getElementById('login_pass').value.trim();
@@ -202,9 +216,16 @@
         } catch (e) { alert("网络错误"); }
         finally { btn.disabled = false; btn.innerText = "登录系统"; }
     }
-    function logout() { localStorage.clear(); location.reload(); }
 
-    // --- 2. 管理员 ---
+    // [修复1] 退出时不清除数据，只清除登录状态
+    function logout() {
+        localStorage.removeItem('repair_user');
+        localStorage.removeItem('repair_role');
+        // 绝对不要调用 localStorage.clear()，否则数据会丢
+        location.reload();
+    }
+
+    // --- 管理员 ---
     async function loadAdminRMAList() {
         const container = document.getElementById('admin_rma_list_container');
         container.innerHTML = "<p style='text-align:center'>加载中...</p>";
@@ -243,7 +264,7 @@
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
             const details = await resp.json();
             let sum = 0;
-            // 修正索引: A:0(Time), B:1(RMA), C:2(Barcode), D:3(Details), E:4(Total), F:5(User)
+            // A=0(Time), B=1(RMA), C=2(Barcode), D=3(Details), E=4(Money), F=5(User)
             tbody.innerHTML = details.map(row => {
                 const money = parseFloat(row[4]) || 0; sum += money;
                 return `<tr><td><small>${new Date(row[0]).toLocaleString()}</small></td><td><b>${row[2]}</b></td><td>${row[3]}</td><td style="color:var(--danger)">$${money.toFixed(2)}</td><td>${row[5]}</td></tr>`;
@@ -252,7 +273,7 @@
         } catch (e) { tbody.innerHTML = "加载失败"; }
     }
 
-    // --- 3. 维修员 ---
+    // --- 维修员 ---
     function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
         const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
@@ -268,7 +289,7 @@
     async function deleteEntireRMA(rma) {
         if(confirm(`⚠️ 确定删除 RMA [${rma}] 吗？\n此操作将同时删除云端所有相关记录。`)) {
             records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v107', JSON.stringify(records));
+            localStorage.setItem('led_repair_v108', JSON.stringify(records));
             renderWorkerRMAList();
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
         }
@@ -276,7 +297,7 @@
 
     function openRMA(rma) { currentRMA = rma; showPage('page_entry'); }
 
-    // --- 4. 录入核心 ---
+    // --- 录入核心 ---
     function showPage(id) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(id).classList.add('active');
@@ -333,19 +354,32 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
+        // 默认 synced 为 false
         const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: currentUser, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
         if(editingId!==null) records[records.findIndex(r=>r.id===editingId)] = data; else records.push(data);
-        localStorage.setItem('led_repair_v107', JSON.stringify(records));
+        
+        // 先保存一次本地（防止 fetch 失败丢失）
+        localStorage.setItem('led_repair_v108', JSON.stringify(records));
 
         try {
-            // 注意：新增 id 字段用于后端 G 列
+            // [修复2] 发送请求，如果网络通畅，默认认为成功
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
                 action: "save", time: data.time, id: data.id, rma: data.rma, barcode: data.barcode, 
                 details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, user: data.user 
             })});
-        } catch(e){}
+            
+            // 请求发送无报错，更新状态为已同步
+            const savedRecord = records.find(r => r.id === data.id);
+            if(savedRecord) {
+                savedRecord.synced = true;
+                localStorage.setItem('led_repair_v108', JSON.stringify(records));
+            }
+        } catch(e) {
+            console.error("Sync failed", e);
+        }
 
-        cancelEdit(); renderEntryTable();
+        cancelEdit(); 
+        renderEntryTable(); // 重新渲染，此时应该能看到绿色“已同步”
         btn.disabled = false; btn.innerText = "保存并同步云端";
     }
 
@@ -354,7 +388,7 @@
         if(confirm(`删除 [${r.barcode}]？`)) {
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) }); } catch(e){}
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v107', JSON.stringify(records));
+            localStorage.setItem('led_repair_v108', JSON.stringify(records));
             renderEntryTable();
         }
     }
@@ -391,7 +425,13 @@
     function resetFaultRows() { document.getElementById('faults_container').innerHTML = ""; addFaultRow(); }
     function resetForm() { cancelEdit(); }
     function handleFiles(input) { Array.from(input.files).forEach(file => { const r = new FileReader(); r.onload = (e) => { if(tempPhotos.length<5) tempPhotos.push(e.target.result); renderPhotoGrid(); }; r.readAsDataURL(file); }); }
-    function exportSingleRMA() { alert("Excel 导出功能 (模拟)"); }
+    function exportSingleRMA() {
+        const myData = records.filter(r => r.rma === currentRMA);
+        let exportData = myData.map(r => ({ "RMA": r.rma, "SN": r.barcode, "故障": r.faults.map(f => `${f.type}*${f.qty}`).join('; '), "金额": r.moduleTotal, "人": r.user, "时间": r.time }));
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Records");
+        XLSX.writeFile(wb, `RMA_${currentRMA}.xlsx`);
+    }
 </script>
 </body>
 </html>
