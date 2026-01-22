@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v10.8 (稳定修复版)</title>
+    <title>LED维修管理系统 v11.0 (ROE Enterprise Edition)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; }
+        :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
         body { font-family: -apple-system, system-ui, sans-serif; background: #f2f2f7; margin: 0; padding: 15px; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); max-width: 850px; margin: auto; min-height: 90vh; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); max-width: 800px; margin: auto; min-height: 90vh; }
         .page { display: none; }
         .page.active { display: block; }
         .user-bar { background: #3a3a3c; color: white; padding: 12px 15px; border-radius: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
@@ -17,27 +17,24 @@
         input, select { width: 100%; padding: 13px; border: 1px solid #d1d1d6; border-radius: 10px; margin-bottom: 5px; box-sizing: border-box; font-size: 16px; }
         .hidden { display: none !important; }
         button { padding: 14px; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-full { width: 100%; margin-top: 10px; }
         .btn-blue { background: var(--primary); color: white; }
         .btn-green { background: var(--success); color: white; }
         .btn-danger { background: var(--danger); color: white; }
         .btn-outline { background: none; color: var(--primary); border: 1px solid var(--primary); }
         .btn-action { padding: 6px 12px; font-size: 13px; margin-left: 5px; border-radius: 6px; }
-        
         .fault-row { background: #f0f0f5; padding: 12px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid var(--primary); }
         .flex-container { display: flex; gap: 8px; align-items: center; }
         .col-main { flex: 2.2; }
         .col-qty { flex: 0.8; }
         .col-subtotal { flex: 1.2; }
         .other-input { margin-top: 8px; border: 1px solid var(--warning); background: #fffbe6; }
-        
-        .rma-card { border: 1px solid #e5e5ea; padding: 15px; border-radius: 12px; margin-bottom: 10px; background: #f9f9fb; border-left: 5px solid var(--primary); }
+        .rma-card { border: 1px solid #e5e5ea; padding: 15px; border-radius: 12px; margin-bottom: 10px; background: #f9f9fb; }
         .rma-card-content { display: flex; justify-content: space-between; align-items: center; }
-        
         .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
         .photo-item { position: relative; width: 100%; aspect-ratio: 1; border: 2px dashed #d1d1d6; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f9f9fb; cursor: pointer; }
         .photo-item img { width: 100%; height: 100%; object-fit: cover; }
-        
         table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 20px; }
         th, td { border-bottom: 1px solid #e5e5ea; padding: 12px 8px; text-align: left; }
         .total-row { background: #f2f2f7; font-weight: bold; color: var(--danger); }
@@ -45,66 +42,118 @@
         .synced { background: var(--success); }
         .not-synced { background: var(--warning); }
 
-        /* 修复 PDF 打印排版混乱的核心代码 */
+        /* --- PDF/打印 专用样式 (ROE 企业版) --- */
         @media print {
-            @page { size: A4; margin: 1cm; }
-            body { background: white; padding: 0; margin: 0; }
-            .card { box-shadow: none; max-width: 100%; width: 100%; padding: 0; margin: 0; min-height: auto; }
-            .no-print, #input_area, .user-bar, .btn-full, .btn-action, #page_login, #page_list, #page_new_rma, #page_admin { 
+            @page { margin: 15mm; size: A4; }
+            body { background: white; padding: 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+            .card { box-shadow: none; max-width: 100%; padding: 0; margin: 0; }
+            
+            /* 隐藏屏幕显示元素 */
+            .no-print, #input_area, .user-bar, .info-bar, .btn-full, #page_login, #page_list, #page_new_rma, #loginBtn, .btn-action, .sync-badge { 
                 display: none !important; 
             }
-            /* 强制显示当前激活的详情页 */
-            .page { display: none; }
-            #page_entry.active, #page_admin_detail.active { display: block !important; }
+            .page { display: block !important; } 
+
+            /* 报表头部布局 */
+            #print-header {
+                display: flex !important;
+                justify-content: space-between;
+                align-items: flex-start;
+                border-bottom: 2px solid var(--roe-red);
+                padding-bottom: 15px;
+                margin-bottom: 20px;
+            }
             
+            .company-info {
+                font-size: 10pt;
+                color: #333;
+                line-height: 1.4;
+            }
+            
+            .company-name {
+                font-size: 18pt;
+                font-weight: bold;
+                color: var(--roe-red);
+                margin-bottom: 5px;
+                text-transform: uppercase;
+            }
+
+            .logo-container img {
+                height: 60px; /* 调整Logo大小 */
+                width: auto;
+            }
+
+            /* 报表标题 */
+            .report-title {
+                text-align: center;
+                font-size: 22pt;
+                font-weight: bold;
+                margin: 20px 0 5px 0;
+                color: #000;
+            }
+            
+            .report-subtitle {
+                text-align: center;
+                font-size: 14pt;
+                color: #666;
+                margin-bottom: 20px;
+            }
+
             /* 表格打印优化 */
-            table { width: 100% !important; border: 1px solid #ccc; font-size: 12px; page-break-inside: auto; }
-            th, td { border: 1px solid #ccc; padding: 8px; }
-            tr { page-break-inside: avoid; page-break-after: auto; }
-            thead { display: table-header-group; }
-            tfoot { display: table-footer-group; }
+            table { width: 100%; border: 1px solid #000; font-size: 11pt; }
+            th { background-color: #f0f0f0 !important; color: black !important; font-weight: bold; border: 1px solid #000; -webkit-print-color-adjust: exact; }
+            td { border: 1px solid #ccc; padding: 8px; }
+            .total-row { background-color: white !important; border-top: 2px solid #000; }
+            .total-row td { font-size: 12pt; color: black !important; font-weight: bold; }
             
-            .sync-badge { display: none; }
-            .print-show { display: block !important; }
+            /* 照片打印布局 */
+            .photo-grid { display: block; }
+            .photo-item { display: inline-block; width: 120px; height: 120px; margin-right: 10px; border: 1px solid #ddd; }
+            .photo-item img { width: 100%; height: 100%; object-fit: contain; }
+            
+            /* 底部页脚 */
+            #print-footer {
+                display: block !important;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                text-align: center;
+                font-size: 9pt;
+                color: #999;
+                border-top: 1px solid #eee;
+                padding-top: 5px;
+            }
         }
     </style>
 </head>
 <body>
 
 <div class="card">
+    <div id="print-header" style="display:none;">
+        <div class="company-info">
+            <div class="company-name">ROE Visual US, Inc</div>
+            <div>9232 Eton Ave</div>
+            <div>Chatsworth, CA 91311</div>
+            <div><strong>Tel:</strong> +1 747 229 9190</div>
+            <div><strong>Email:</strong> usservice@roevisual.com</div>
+        </div>
+        <div class="logo-container">
+            <img src="ROE logo.png" alt="ROE Visual Logo" onerror="this.style.display='none'"> 
+        </div>
+    </div>
+
+    <div id="print-footer" style="display:none;">
+        ROE Visual Service Report | Generated by System
+    </div>
+
     <div id="page_login" class="page active no-print">
-        <h2 style="text-align:center; margin-top:40px;">👤 系统登录</h2>
+        <h2 style="text-align:center; margin-top:40px;">👤 维修员登录</h2>
         <label>用户名</label>
         <input type="text" id="login_user" placeholder="请输入姓名">
         <label>密码</label>
         <input type="password" id="login_pass" placeholder="请输入密码">
         <button class="btn-blue btn-full" id="loginBtn" onclick="secureLogin()">登录系统</button>
-    </div>
-
-    <div id="page_admin" class="page no-print">
-        <div class="user-bar">
-            <span>管理员：<strong id="admin_name">--</strong></span>
-            <button onclick="logout()" style="background:none; color:#ff453a; font-weight:bold; border:none;">退出</button>
-        </div>
-        <h3>📊 任务全览</h3>
-        <input type="text" id="adminSearch" placeholder="🔍 搜索 RMA 号或维修员..." oninput="filterAdminList()">
-        <div id="admin_rma_list_container"></div>
-    </div>
-
-    <div id="page_admin_detail" class="page">
-        <div class="info-bar no-print">
-            <button onclick="showPage('page_admin')" style="background:none; color:white; border:none;">⬅ 返回列表</button>
-            <strong id="admin_detail_title">详情</strong>
-            <button onclick="window.print()" class="btn-action" style="background:white; color:black;">PDF</button>
-        </div>
-        <h2 id="print_admin_title" style="text-align:center; display:none;" class="print-show">维修报告</h2>
-        <table id="adminDetailTable">
-            <thead><tr><th>时间</th><th>条码</th><th>故障项目</th><th>金额</th><th>维修员</th></tr></thead>
-            <tbody id="adminDetailBody"></tbody>
-            <tfoot>
-                <tr class="total-row"><td colspan="3" style="text-align:right">RMA 总计:</td><td colspan="2" id="admin_grand_total">$0.00</td></tr>
-            </tfoot>
-        </table>
     </div>
 
     <div id="page_list" class="page no-print">
@@ -120,7 +169,7 @@
     <div id="page_new_rma" class="page no-print">
         <h2 style="text-align:center">🛠 任务初始化</h2>
         <label>请输入新 RMA 单号</label>
-        <input type="text" id="new_rma_input" placeholder="例：RMA-2026-001">
+        <input type="text" id="new_rma_input" placeholder="例：RMA-2026-001" autofocus>
         <button class="btn-blue btn-full" onclick="createNewRMA()">确认创建并进入</button>
         <button class="btn-outline btn-full" onclick="showPage('page_list')">返回</button>
     </div>
@@ -146,7 +195,7 @@
             <div id="faults_container"></div>
             <button class="btn-outline" style="width:100%; padding:8px; margin-bottom:15px;" onclick="addFaultRow()">+ 增加故障项</button>
 
-            <label>3. 维修照片</label>
+            <label>3. 维修照片 (录入后自动清空)</label>
             <div class="photo-grid" id="photo_grid">
                 <div class="photo-item" onclick="document.getElementById('photo_input').click()">📷 点击拍照</div>
             </div>
@@ -157,9 +206,11 @@
         </div>
 
         <div class="table-container">
-            <div id="print_header" class="hidden" style="display:none; text-align:center; margin-bottom:20px;">
-                <h2 id="print_rma_title" class="print-show" style="display:none;">维修报告</h2>
+            <div id="print_report_header" class="hidden" style="display:none;">
+                <h1 class="report-title">Repair Service Report</h1>
+                <h3 class="report-subtitle" id="print_rma_display"></h3>
             </div>
+            
             <table id="recordTable">
                 <thead>
                     <tr><th>条码/时间</th><th>故障明细</th><th>数量</th><th>小计</th><th>照片</th><th class="no-print">操作</th></tr>
@@ -176,26 +227,18 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    // 注意：key 保持 v107 确保数据兼容，或者您可以改为 v108
-    let records = JSON.parse(localStorage.getItem('led_repair_v108') || '[]');
+    // 保持使用 v92 数据键名，防止数据丢失
+    let records = JSON.parse(localStorage.getItem('led_repair_v92') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
-    let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
     let tempPhotos = [];
-    let allAdminRMAs = [];
     const priceMap = { "碰撞死灯": 11, "灯珠故障": 0, "面罩更换": 3, "IC维修": 15, "电路板维修": 15, "其他": 0 };
 
     window.onload = () => {
         if(currentUser) {
-            if(currentRole === 'admin') {
-                document.getElementById('admin_name').innerText = currentUser;
-                showPage('page_admin');
-                loadAdminRMAList();
-            } else {
-                document.getElementById('display_user').innerText = currentUser;
-                document.getElementById('display_user_entry').innerText = currentUser;
-                showPage('page_list');
-            }
+            document.getElementById('display_user').innerText = currentUser;
+            document.getElementById('display_user_entry').innerText = currentUser;
+            showPage('page_list');
         }
     };
 
@@ -204,128 +247,78 @@
         const pass = document.getElementById('login_pass').value.trim();
         const btn = document.getElementById('loginBtn');
         if(!user || !pass) return alert("请输入账号密码");
-        btn.disabled = true; btn.innerText = "验证中...";
+        btn.disabled = true; btn.innerText = "正在核对账户...";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`);
-            const data = await resp.json();
-            if(data.result === "success") {
-                currentUser = user; currentRole = data.role;
-                localStorage.setItem('repair_user', user); localStorage.setItem('repair_role', currentRole);
-                location.reload();
-            } else { alert("账号错误"); }
-        } catch (e) { alert("网络错误"); }
+            const result = await resp.text();
+            if(result === "success") {
+                currentUser = user;
+                localStorage.setItem('repair_user', user);
+                document.getElementById('display_user').innerText = user;
+                document.getElementById('display_user_entry').innerText = user;
+                showPage('page_list');
+            } else { alert("账号或密码错误！"); }
+        } catch (e) { alert("网络错误，请检查是否能连接 Google"); }
         finally { btn.disabled = false; btn.innerText = "登录系统"; }
     }
 
-    // [修复1] 退出时不清除数据，只清除登录状态
     function logout() {
         localStorage.removeItem('repair_user');
-        localStorage.removeItem('repair_role');
-        // 绝对不要调用 localStorage.clear()，否则数据会丢
-        location.reload();
+        currentUser = "";
+        showPage('page_login');
     }
 
-    // --- 管理员 ---
-    async function loadAdminRMAList() {
-        const container = document.getElementById('admin_rma_list_container');
-        container.innerHTML = "<p style='text-align:center'>加载中...</p>";
-        try {
-            const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMAList`);
-            allAdminRMAs = await resp.json();
-            renderAdminCards(allAdminRMAs);
-        } catch (e) { container.innerHTML = "加载失败"; }
-    }
-
-    function renderAdminCards(list) {
-        const container = document.getElementById('admin_rma_list_container');
-        if(list.length === 0) { container.innerHTML = "<p>无数据</p>"; return; }
-        container.innerHTML = list.map(item => `
-            <div class="rma-card" onclick="loadAdminDetail('${item.name}')">
-                <div class="rma-card-content">
-                    <div><strong>${item.name}</strong><br><small>${item.worker} | ${new Date(item.lastTime).toLocaleString()}</small></div>
-                    <div style="text-align:right"><span style="color:var(--danger);font-weight:bold;">$${parseFloat(item.totalMoney).toFixed(2)}</span><br><small>${item.count} 模组</small></div>
-                </div>
-            </div>`).join('');
-    }
-
-    function filterAdminList() {
-        const kw = document.getElementById('adminSearch').value.toLowerCase();
-        renderAdminCards(allAdminRMAs.filter(i => i.name.toLowerCase().includes(kw) || String(i.worker).toLowerCase().includes(kw)));
-    }
-
-    async function loadAdminDetail(rmaName) {
-        showPage('page_admin_detail');
-        document.getElementById('admin_detail_title').innerText = rmaName;
-        document.getElementById('print_admin_title').innerText = "维修报告 - " + rmaName;
-        const tbody = document.getElementById('adminDetailBody');
-        tbody.innerHTML = "<tr><td colspan='5' style='text-align:center'>加载中...</td></tr>";
-
-        try {
-            const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
-            const details = await resp.json();
-            let sum = 0;
-            // A=0(Time), B=1(RMA), C=2(Barcode), D=3(Details), E=4(Money), F=5(User)
-            tbody.innerHTML = details.map(row => {
-                const money = parseFloat(row[4]) || 0; sum += money;
-                return `<tr><td><small>${new Date(row[0]).toLocaleString()}</small></td><td><b>${row[2]}</b></td><td>${row[3]}</td><td style="color:var(--danger)">$${money.toFixed(2)}</td><td>${row[5]}</td></tr>`;
-            }).join('');
-            document.getElementById('admin_grand_total').innerText = `$${sum.toFixed(2)}`;
-        } catch (e) { tbody.innerHTML = "加载失败"; }
-    }
-
-    // --- 维修员 ---
-    function renderWorkerRMAList() {
-        const container = document.getElementById('rma_list_container');
-        const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
-        container.innerHTML = myRMAs.map(rma => `
-            <div class="rma-card">
-                <div class="rma-card-content">
-                    <div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div>
-                    <div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">进入</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">删除报表</button></div>
-                </div>
-            </div>`).join('') || '<p style="text-align:center">暂无报表</p>';
-    }
-
-    async function deleteEntireRMA(rma) {
-        if(confirm(`⚠️ 确定删除 RMA [${rma}] 吗？\n此操作将同时删除云端所有相关记录。`)) {
-            records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v108', JSON.stringify(records));
-            renderWorkerRMAList();
-            try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
-        }
-    }
-
-    function openRMA(rma) { currentRMA = rma; showPage('page_entry'); }
-
-    // --- 录入核心 ---
     function showPage(id) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(id).classList.add('active');
-        if(currentRMA && id === 'page_entry') {
+        if(currentRMA) {
             document.getElementById('display_rma').innerText = currentRMA;
-            document.getElementById('print_rma_title').innerText = "维修报告 - RMA: " + currentRMA;
-            document.getElementById('print_header').style.display = 'block';
+            // 更新打印报表中的 RMA 显示
+            document.getElementById('print_rma_display').innerText = "RMA Number: " + currentRMA;
+            // 显示打印标题
+            if(id === 'page_entry') {
+                document.getElementById('print_report_header').style.display = 'block';
+            }
         }
-        if(id === 'page_list') renderWorkerRMAList();
-        if(id === 'page_entry') { if(editingId===null) resetForm(); renderEntryTable(); }
+        if(id === 'page_list') renderRMAList();
+        if(id === 'page_entry') {
+            if(editingId === null) resetForm();
+            renderEntryTable();
+        }
     }
 
-    function addFaultRow(typeVal="碰撞死灯", qtyVal=1, customPrice=null) {
+    function addFaultRow(typeVal = "碰撞死灯", qtyVal = 1, customPrice = null) {
         const container = document.getElementById('faults_container');
-        const rowId = 'r'+Math.random().toString(36).substr(2,5);
-        const div = document.createElement('div'); div.className='fault-row'; div.id=rowId;
+        const rowId = 'row_' + Math.random().toString(36).substr(2, 5);
+        const div = document.createElement('div');
+        div.className = 'fault-row';
+        div.id = rowId;
         const isStandard = priceMap.hasOwnProperty(typeVal) && typeVal !== '其他';
         const displayType = isStandard ? typeVal : '其他';
         const unitPrice = isStandard ? priceMap[typeVal] : (customPrice || 0);
 
-        div.innerHTML = `<div class="flex-container">
-            <div class="col-main"><select class="f_type" onchange="updateRow('${rowId}')">${Object.keys(priceMap).map(k=>`<option value="${k}" ${displayType===k?'selected':''}>${k} ($${priceMap[k]})</option>`).join('')}</select></div>
-            <div class="col-qty"><input type="number" class="f_qty" value="${qtyVal}" min="1" oninput="updateRow('${rowId}')"></div>
-            <div class="col-subtotal"><input type="number" class="f_price_display" value="${(unitPrice*qtyVal).toFixed(2)}" readonly style="background:#f0f0f5;color:var(--danger);font-weight:bold;"><input type="hidden" class="f_unit_price" value="${unitPrice}"></div>
-            <div class="no-print" style="cursor:pointer;color:red;padding:0 5px;" onclick="this.parentElement.parentElement.remove()">✕</div>
-        </div>
-        <input type="text" class="f_other_text other-input ${displayType==='其他'?'':'hidden'}" placeholder="故障描述" value="${!isStandard?typeVal:''}">
-        <div class="other-price-input ${displayType==='其他'?'':'hidden'}" style="margin-top:5px;"><input type="number" class="f_manual_unit_price" value="${unitPrice}" oninput="updateRow('${rowId}')" placeholder="单价"></div>`;
+        div.innerHTML = `
+            <div class="flex-container">
+                <div class="col-main"><select class="f_type" onchange="updateRow('${rowId}')">
+                    <option value="碰撞死灯" ${displayType==='碰撞死灯'?'selected':''}>碰撞死灯 ($11)</option>
+                    <option value="灯珠故障" ${displayType==='灯珠故障'?'selected':''}>灯珠故障 ($0)</option>
+                    <option value="面罩更换" ${displayType==='面罩更换'?'selected':''}>面罩更换 ($3)</option>
+                    <option value="IC维修" ${displayType==='IC维修'?'selected':''}>IC维修 ($15)</option>
+                    <option value="电路板维修" ${displayType==='电路板维修'?'selected':''}>电路板维修 ($15)</option>
+                    <option value="其他" ${displayType==='其他'?'selected':''}>其他 (自定义)</option>
+                </select></div>
+                <div class="col-qty"><input type="number" class="f_qty" value="${qtyVal}" min="1" oninput="updateRow('${rowId}')"></div>
+                <div class="col-subtotal">
+                    <input type="number" class="f_price_display" value="${(unitPrice * qtyVal).toFixed(2)}" readonly style="background:#f0f0f5; font-weight:bold; color:var(--danger);">
+                    <input type="hidden" class="f_unit_price" value="${unitPrice}">
+                </div>
+                <div class="no-print" style="cursor:pointer; color:red; padding:0 5px;" onclick="removeFaultRow('${rowId}')">✕</div>
+            </div>
+            <input type="text" class="f_other_text other-input ${displayType==='其他'?'':'hidden'}" placeholder="故障描述..." value="${!isStandard ? typeVal : ''}">
+            <div class="other-price-input ${displayType==='其他'?'':'hidden'}" style="margin-top:5px;">
+                <input type="number" class="f_manual_unit_price" value="${unitPrice}" oninput="updateRow('${rowId}')" placeholder="单价">
+            </div>
+        `;
         container.appendChild(div);
     }
 
@@ -341,54 +334,59 @@
     }
 
     async function saveRecord() {
-        const sn = document.getElementById('barcode').value.trim();
-        if(!sn) return alert("条码必填");
+        const barcode = document.getElementById('barcode').value.trim();
+        if(!barcode) return alert("条码必填");
         const btn = document.getElementById('submitBtn');
-        btn.disabled = true; btn.innerText = "同步中...";
-        let faults=[], total=0;
+        btn.disabled = true; btn.innerText = "同步云端中...";
+
+        let faults = [], moduleTotal = 0;
         document.querySelectorAll('.fault-row').forEach(row => {
-            let t = row.querySelector('.f_type').value;
-            const q = parseInt(row.querySelector('.f_qty').value)||0;
-            const p = parseFloat(row.querySelector('.f_unit_price').value)||0;
-            if(t==='其他') t = row.querySelector('.f_other_text').value.trim()||"其他";
-            faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
+            let type = row.querySelector('.f_type').value;
+            const qty = parseInt(row.querySelector('.f_qty').value) || 0;
+            const unitPrice = parseFloat(row.querySelector('.f_unit_price').value) || 0;
+            if(type === '其他') type = row.querySelector('.f_other_text').value.trim() || "其他";
+            faults.push({ type, qty, unitPrice });
+            moduleTotal += (qty * unitPrice);
         });
 
-        // 默认 synced 为 false
-        const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: currentUser, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
-        if(editingId!==null) records[records.findIndex(r=>r.id===editingId)] = data; else records.push(data);
-        
-        // 先保存一次本地（防止 fetch 失败丢失）
-        localStorage.setItem('led_repair_v108', JSON.stringify(records));
+        const data = { 
+            id: editingId || Date.now(), rma: currentRMA, barcode, faults, 
+            moduleTotal, user: currentUser, time: new Date().toLocaleString(), 
+            photos: [...tempPhotos], synced: false 
+        };
+
+        if(editingId !== null) {
+            const idx = records.findIndex(r => r.id === editingId);
+            records[idx] = data;
+        } else { records.push(data); }
+        localStorage.setItem('led_repair_v92', JSON.stringify(records));
 
         try {
-            // [修复2] 发送请求，如果网络通畅，默认认为成功
-            await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
-                action: "save", time: data.time, id: data.id, rma: data.rma, barcode: data.barcode, 
-                details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, user: data.user 
-            })});
-            
-            // 请求发送无报错，更新状态为已同步
-            const savedRecord = records.find(r => r.id === data.id);
-            if(savedRecord) {
-                savedRecord.synced = true;
-                localStorage.setItem('led_repair_v108', JSON.stringify(records));
-            }
-        } catch(e) {
-            console.error("Sync failed", e);
-        }
+            const payload = {
+                action: "save", rma: data.rma, barcode: data.barcode, user: data.user,
+                time: data.time, total: data.moduleTotal,
+                details: data.faults.map(f => `${f.type}*${f.qty}`).join('; ')
+            };
+            await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+            const lastIdx = records.findIndex(r => r.id === data.id);
+            records[lastIdx].synced = true;
+            localStorage.setItem('led_repair_v92', JSON.stringify(records));
+        } catch (e) {}
 
         cancelEdit(); 
-        renderEntryTable(); // 重新渲染，此时应该能看到绿色“已同步”
+        renderEntryTable();
         btn.disabled = false; btn.innerText = "保存并同步云端";
     }
 
     async function deleteModule(idx) {
         const r = records[idx];
-        if(confirm(`删除 [${r.barcode}]？`)) {
-            try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) }); } catch(e){}
+        if (confirm(`确定删除 [${r.barcode}]？云端数据将同步删除。`)) {
+            try {
+                const p = { action: "delete", rma: r.rma, barcode: r.barcode };
+                fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(p) });
+            } catch (e) {}
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v108', JSON.stringify(records));
+            localStorage.setItem('led_repair_v92', JSON.stringify(records));
             renderEntryTable();
         }
     }
@@ -397,13 +395,20 @@
         const tbody = document.querySelector('#recordTable tbody');
         const myData = records.filter(r => r.rma === currentRMA);
         let grandTotal = 0;
-        tbody.innerHTML = myData.map(r => {
+        tbody.innerHTML = myData.map((r) => {
             grandTotal += r.moduleTotal;
             const realIdx = records.indexOf(r);
-            return `<tr><td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">已同步</span>':'<span class="sync-badge not-synced">本地</span>'}<br><small>${r.time}</small></td>
-                <td>${r.faults.map(f=>f.type).join('<br>')}</td><td>${r.faults.map(f=>f.qty).join('<br>')}</td><td style="color:var(--danger)">$${r.moduleTotal.toFixed(2)}</td>
-                <td>${r.photos.map(p=>`<img src="${p}" style="width:35px;height:35px;object-fit:cover;">`).join('')}</td>
-                <td class="no-print"><button class="btn-action btn-outline" onclick="editIt(${realIdx})">改</button><button class="btn-action btn-danger" onclick="deleteModule(${realIdx})">删</button></td></tr>`;
+            return `<tr>
+                <td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">已同步</span>':'<span class="sync-badge not-synced">本地</span>'}<br><small>${r.time}</small></td>
+                <td>${r.faults.map(f => f.type).join('<br>')}</td>
+                <td>${r.faults.map(f => f.qty).join('<br>')}</td>
+                <td style="color:var(--danger);font-weight:bold;">$${r.moduleTotal.toFixed(2)}</td>
+                <td>${r.photos.map(p => `<img src="${p}" style="width:35px;height:35px;object-fit:cover;border-radius:4px;">`).join('')}</td>
+                <td class="no-print">
+                    <button class="btn-action btn-outline" onclick="editIt(${realIdx})">改</button>
+                    <button class="btn-action btn-danger" onclick="deleteModule(${realIdx})">删</button>
+                </td>
+            </tr>`;
         }).reverse().join('');
         document.getElementById('grand_total_display').innerText = `$${grandTotal.toFixed(2)}`;
     }
@@ -414,17 +419,41 @@
         tempPhotos = [...r.photos]; renderPhotoGrid();
         document.getElementById('faults_container').innerHTML = "";
         r.faults.forEach(f => addFaultRow(f.type, f.qty, f.unitPrice));
-        document.getElementById('submitBtn').innerText = "确认修改并同步";
+        document.getElementById('submitBtn').innerText = "确认修改并更新云端";
         document.getElementById('cancelEditBtn').classList.remove('hidden');
         window.scrollTo(0,0);
     }
 
-    function cancelEdit() { editingId=null; document.getElementById('barcode').value=""; tempPhotos=[]; renderPhotoGrid(); resetFaultRows(); document.getElementById('submitBtn').innerText="保存并同步云端"; document.getElementById('cancelEditBtn').classList.add('hidden'); }
-    function renderPhotoGrid() { document.getElementById('photo_grid').innerHTML = tempPhotos.map((src, i) => `<div class="photo-item"><img src="${src}"><div class="no-print" style="position:absolute;top:0;right:0;background:red;color:white;padding:2px 6px;" onclick="tempPhotos.splice(${i},1);renderPhotoGrid()">X</div></div>`).join('') + (tempPhotos.length<5?`<div class="photo-item no-print" onclick="document.getElementById('photo_input').click()">📷</div>`:''); }
-    function createNewRMA() { const v = document.getElementById('new_rma_input').value.trim(); if(v) { currentRMA = v; showPage('page_entry'); } }
+    function cancelEdit() {
+        editingId = null;
+        document.getElementById('barcode').value = "";
+        tempPhotos = [];
+        renderPhotoGrid();
+        resetFaultRows();
+        document.getElementById('submitBtn').innerText = "保存并同步云端";
+        document.getElementById('cancelEditBtn').classList.add('hidden');
+    }
+
+    function renderPhotoGrid() {
+        const grid = document.getElementById('photo_grid');
+        grid.innerHTML = tempPhotos.map((src, i) => `
+            <div class="photo-item">
+                <img src="${src}">
+                <div class="no-print" style="position:absolute;top:0;right:0;background:red;color:white;padding:2px 6px;font-size:10px;" onclick="tempPhotos.splice(${i},1);renderPhotoGrid()">X</div>
+            </div>
+        `).join('') + (tempPhotos.length < 5 ? `<div class="photo-item no-print" onclick="document.getElementById('photo_input').click()">📷 点击拍照</div>` : '');
+    }
+
+    function createNewRMA() { const val = document.getElementById('new_rma_input').value.trim(); if(val) { currentRMA = val; showPage('page_entry'); } }
+    function removeFaultRow(id) { if(document.querySelectorAll('.fault-row').length > 1) document.getElementById(id).remove(); }
     function resetFaultRows() { document.getElementById('faults_container').innerHTML = ""; addFaultRow(); }
     function resetForm() { cancelEdit(); }
     function handleFiles(input) { Array.from(input.files).forEach(file => { const r = new FileReader(); r.onload = (e) => { if(tempPhotos.length<5) tempPhotos.push(e.target.result); renderPhotoGrid(); }; r.readAsDataURL(file); }); }
+    function renderRMAList() {
+        const container = document.getElementById('rma_list_container');
+        const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
+        container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><b>${rma}</b><button class="btn-action btn-outline" onclick="currentRMA='${rma}'; showPage('page_entry');">进入</button></div></div>`).join('');
+    }
     function exportSingleRMA() {
         const myData = records.filter(r => r.rma === currentRMA);
         let exportData = myData.map(r => ({ "RMA": r.rma, "SN": r.barcode, "故障": r.faults.map(f => `${f.type}*${f.qty}`).join('; '), "金额": r.moduleTotal, "人": r.user, "时间": r.time }));
