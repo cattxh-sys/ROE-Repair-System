@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Repair System v11.4 Clean</title>
+    <title>LED Repair System v11.3 (Owner Logic)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -12,6 +12,7 @@
         .page { display: none; }
         .page.active { display: block; }
         
+        /* UI Components */
         .user-bar { background: #3a3a3c; color: white; padding: 12px 15px; border-radius: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
         .info-bar { background: var(--primary); color: white; padding: 12px; border-radius: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
         label { display: block; margin: 15px 0 5px; font-weight: 600; color: #3a3a3c; }
@@ -170,10 +171,11 @@
 </div>
 
 <script>
-    // --- ⚠️ 重要：请务必确认这个 URL 是否是最新部署的 Web App URL ---
+    // ⚠️ 请将此 URL 替换为新部署的脚本 URL
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    let records = JSON.parse(localStorage.getItem('led_repair_v114') || '[]'); 
+    // 本地存储键值更新，避免旧数据干扰
+    let records = JSON.parse(localStorage.getItem('led_repair_v113') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
@@ -209,27 +211,11 @@
         const btn = document.getElementById('loginBtn');
         if(!user || !pass) return alert("Required");
         
-        btn.disabled = true; 
-        btn.innerText = "Connecting...";
-
+        btn.disabled = true; btn.innerText = "Verifying...";
         try {
-            // 发起请求
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`);
-            
-            // 检查 HTTP 状态码
-            if (!resp.ok) {
-                throw new Error(`Server Error: ${resp.status} ${resp.statusText}`);
-            }
-
-            // 尝试解析 JSON
-            const text = await resp.text(); // 先按文本读取，防止 JSON 解析挂掉
-            let data;
-            try {
-                data = JSON.parse(text);
-            } catch (e) {
-                // 如果解析失败，说明返回的不是 JSON (可能是 HTML 报错页面)
-                throw new Error("Invalid Response (Not JSON): " + text.substring(0, 100));
-            }
+            if(!resp.ok) throw new Error("HTTP Error " + resp.status);
+            const data = await resp.json();
             
             if(data.result === "success") {
                 currentUser = user; 
@@ -238,26 +224,25 @@
                 localStorage.setItem('repair_role', currentRole);
                 if (currentRole === 'worker') { await syncWorkerData(); }
                 location.reload();
-            } else { 
-                alert("Login Failed: " + (data.result || "Unknown Error")); 
-            }
+            } else { alert("Invalid Username or Password!"); }
         } catch (e) { 
             console.error(e);
-            alert("Connection Error:\n" + e.message + "\n\nPlease check your Script URL."); 
+            alert("Network Error. Check Script URL."); 
         } finally { 
-            btn.disabled = false; 
-            btn.innerText = "Login"; 
+            btn.disabled = false; btn.innerText = "Login"; 
         }
     }
 
     async function syncWorkerData() {
         if(currentRole !== 'worker') return;
         const status = document.getElementById('sync_status_bar');
-        status.style.display = 'block'; status.innerText = "Syncing...";
+        status.style.display = 'block'; status.innerText = "Syncing from Server...";
         try {
+            // 这里 user 参数传给后台，后台会优先匹配 H列(Owner)，其次匹配 F列(User)
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getWorkerData&user=${encodeURIComponent(currentUser)}`);
-            if(!resp.ok) throw new Error("Sync HTTP Error");
             const serverData = await resp.json(); 
+            
+            // 合并策略：保留本地未同步的，合并云端新的
             const unsyncedRecords = records.filter(r => r.synced === false);
             const serverRecords = serverData.map(parseServerRow);
             
@@ -267,14 +252,10 @@
             });
             
             records = merged;
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             status.innerText = "Done!"; setTimeout(() => { status.style.display='none'; }, 2000);
             if(document.getElementById('page_list').classList.contains('active')) renderWorkerRMAList();
-        } catch(e) { 
-            console.error(e);
-            status.innerText = "Sync Failed"; 
-            setTimeout(() => { status.style.display='none'; }, 3000); 
-        }
+        } catch(e) { status.innerText = "Sync Failed"; setTimeout(() => { status.style.display='none'; }, 3000); }
     }
 
     function logout() { localStorage.removeItem('repair_user'); localStorage.removeItem('repair_role'); location.reload(); }
@@ -284,10 +265,9 @@
         container.innerHTML = "<p style='text-align:center'>Loading...</p>";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMAList`);
-            if(!resp.ok) throw new Error("Load Error");
             allAdminRMAs = await resp.json();
             renderAdminCards(allAdminRMAs);
-        } catch (e) { container.innerHTML = "<p style='text-align:center;color:red'>Load Failed</p>"; }
+        } catch (e) { container.innerHTML = "Load Failed"; }
     }
 
     function renderAdminCards(list) {
@@ -309,10 +289,11 @@
 
     async function adminEditRMA(rmaName) {
         currentRMA = rmaName;
+        // Admin 直接从云端拉取最新数据覆盖本地缓存，确保修改的是最新的
         records = records.filter(r => r.rma !== rmaName); 
         
         showPage('page_entry');
-        document.querySelector('#recordTable tbody').innerHTML = "<tr><td colspan='7' style='text-align:center'>Fetching data...</td></tr>";
+        document.querySelector('#recordTable tbody').innerHTML = "<tr><td colspan='7' style='text-align:center'>Fetching full data from cloud...</td></tr>";
 
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
@@ -320,13 +301,14 @@
             const serverRecords = data.map(parseServerRow);
             
             records = [...records, ...serverRecords];
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderEntryTable();
         } catch (e) { alert("Failed to fetch data"); }
     }
 
+    // 解析服务器数据行
     function parseServerRow(row) {
-        // A=0(Time), B=1(RMA), C=2(Barcode), D=3(Details), E=4(Total), F=5(User), G=6(ID), H=7(Owner)
+        // Excel列索引: A=0, B=1, ... F=5(User), G=6(ID), H=7(Owner)
         const faultsArr = [];
         const detailStr = String(row[3] || ""); 
         if(detailStr) {
@@ -337,21 +319,31 @@
             });
         }
         
-        const rowUser = row[5] || "";
-        const rowOwner = (row.length > 7 && row[7]) ? row[7] : rowUser;
+        // 关键逻辑：获取 Owner
+        let rowOwner = "";
+        if (row.length > 7 && row[7]) {
+            rowOwner = row[7]; // 如果 H 列有值，就是 Owner
+        } else {
+            rowOwner = row[5]; // 如果 H 列空（旧数据），User即Owner
+        }
 
         return {
-            time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
+            time: row[0], 
+            rma: row[1], 
+            barcode: row[2], 
+            faults: faultsArr,
             moduleTotal: parseFloat(row[4] || 0), 
-            user: rowUser,    
-            owner: rowOwner,  
+            user: row[5],   // F列：User (操作人)
+            owner: rowOwner,// H列：Owner (归属人)
             id: row[6],
-            photos: [], synced: true
+            photos: [], 
+            synced: true
         };
     }
 
     function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
+        // 维修员本地只看属于自己的单 (Owner === currentUser)
         const myRMAs = [...new Set(records.filter(r => r.owner === currentUser).map(r => r.rma))];
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
     }
@@ -359,7 +351,7 @@
     async function deleteEntireRMA(rma) {
         if(confirm(`⚠️ Delete RMA [${rma}] completely?`)) {
             records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderWorkerRMAList();
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
         }
@@ -368,6 +360,7 @@
     async function openRMA(rmaName) { 
         currentRMA = rmaName; 
         showPage('page_entry'); 
+        
         const tbody = document.querySelector('#recordTable tbody');
         tbody.innerHTML = "<tr><td colspan='7' style='text-align:center'>Loading data from server...</td></tr>";
 
@@ -376,15 +369,19 @@
             const data = await resp.json();
             const serverRecords = data.map(parseServerRow);
 
+            // 合并逻辑：保留本地未同步的，加入云端的
             const otherRecords = records.filter(r => r.rma !== rmaName);
             const localUnsynced = records.filter(r => r.rma === rmaName && !r.synced);
+            
             records = [...otherRecords, ...localUnsynced];
             
             serverRecords.forEach(srvItem => {
-                if (!localUnsynced.find(loc => loc.id == srvItem.id)) records.push(srvItem);
+                if (!localUnsynced.find(loc => loc.id == srvItem.id)) {
+                    records.push(srvItem);
+                }
             });
 
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderEntryTable();
 
         } catch (e) {
@@ -403,9 +400,7 @@
             document.getElementById('print_rma_num_report').innerText = currentRMA;
             document.getElementById('print_block_report').style.display = 'block'; 
             
-            if(editingId === null) resetForm(); 
-
-            const backBtn = document.getElementById('btn_back_dynamic');
+            // 确保 User Bar 显示当前登录用户 (而不是记录里的 User)
             if(currentRole === 'admin') {
                 document.getElementById('display_user_entry').innerText = currentUser;
                 document.getElementById('admin_edit_badge').style.display = 'inline-block';
@@ -413,17 +408,26 @@
                 document.getElementById('display_user_entry').innerText = currentUser;
                 document.getElementById('admin_edit_badge').style.display = 'none';
             }
+            
+            // 如果列表为空，默认加一行
+            if(editingId === null) resetForm();
         } else {
             document.querySelectorAll('.report-title-block').forEach(el => el.style.display = 'none');
         }
 
         if(id === 'page_list') renderWorkerRMAList();
-        if(id === 'page_entry' && document.getElementById('faults_container').children.length === 0) addFaultRow();
+        
+        if(id === 'page_entry' && document.getElementById('faults_container').children.length === 0) {
+            addFaultRow();
+        }
     }
 
     function goBack() {
-        if(currentRole === 'admin') showPage('page_admin');
-        else showPage('page_list');
+        if(currentRole === 'admin') {
+            showPage('page_admin');
+        } else {
+            showPage('page_list');
+        }
     }
 
     function addFaultRow(typeVal="LED Repair - Physical Damage", qtyVal=1, customPrice=null) {
@@ -461,17 +465,26 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
-        let recordUser = currentUser; 
-        let recordOwner = currentUser; 
+        // --- 核心 User vs Owner 逻辑 ---
+        let recordUser = currentUser; // F列：User 永远是当前操作人 (可能是Admin也可能是Worker)
+        let recordOwner = currentUser; // H列：Owner 默认是当前人
 
+        // 1. 如果是编辑现有记录，保持原 Owner 不变
         if (editingId) {
             const originalRec = records.find(r => r.id === editingId);
-            if (originalRec && originalRec.owner) recordOwner = originalRec.owner; 
-            else if (originalRec) recordOwner = originalRec.user; 
-        } else {
+            if (originalRec && originalRec.owner) {
+                recordOwner = originalRec.owner;
+            } else if (originalRec) {
+                recordOwner = originalRec.user; // 兼容旧数据
+            }
+        } 
+        // 2. 如果是新建记录，尝试继承该 RMA 的 Owner
+        else {
             const existingRmaRec = records.find(r => r.rma === currentRMA && r.owner);
-            if (existingRmaRec) recordOwner = existingRmaRec.owner;
-            else recordOwner = currentUser;
+            if (existingRmaRec) {
+                recordOwner = existingRmaRec.owner; // 比如 Admin 给 Worker 的 RMA 加单，Owner 还是 Worker
+            }
+            // 否则 Owner = currentUser (新建 RMA)
         }
 
         const data = { 
@@ -480,15 +493,15 @@
             barcode: sn, 
             faults, 
             moduleTotal: total, 
-            user: recordUser,   
-            owner: recordOwner, 
+            user: recordUser,   // Save to F
+            owner: recordOwner, // Save to H
             time: new Date().toLocaleString(), 
             photos: [...tempPhotos], 
             synced: false 
         };
 
         if(editingId!==null) records[records.findIndex(r=>r.id===editingId)] = data; else records.push(data);
-        localStorage.setItem('led_repair_v114', JSON.stringify(records));
+        localStorage.setItem('led_repair_v113', JSON.stringify(records));
 
         try {
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
@@ -499,11 +512,11 @@
                 barcode: data.barcode, 
                 details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), 
                 total: data.moduleTotal, 
-                user: data.user,  
-                owner: data.owner 
+                user: data.user,   // 发送 F列 数据
+                owner: data.owner  // 发送 H列 数据
             })});
             const savedRecord = records.find(r => r.id === data.id);
-            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v114', JSON.stringify(records)); }
+            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v113', JSON.stringify(records)); }
         } catch(e){}
         cancelEdit(); renderEntryTable(); btn.disabled = false; btn.innerText = "Save & Sync Cloud";
     }
@@ -523,7 +536,7 @@
                 body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) 
             });
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderEntryTable();
         } catch(e) {
             alert("Network Error: Could not delete.");
@@ -539,6 +552,7 @@
         tbody.innerHTML = myData.map(r => {
             grandTotal += r.moduleTotal;
             const realIdx = records.indexOf(r);
+            // 表格中显示的是 r.user (最后操作人)，这样管理员修改后能看出来
             return `<tr><td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">Synced</span>':'<span class="sync-badge not-synced">Local</span>'}<br><small>${r.time}</small></td>
                 <td>${r.faults.map(f=>f.type).join('<br>')}</td><td>${r.faults.map(f=>f.qty).join('<br>')}</td><td style="color:var(--danger)">$${r.moduleTotal.toFixed(2)}</td>
                 <td>${r.photos.map(p=>`<img src="${p}" style="width:35px;height:35px;object-fit:cover;">`).join('')}</td>
@@ -553,16 +567,36 @@
         document.getElementById('barcode').value = r.barcode;
         tempPhotos = [...r.photos]; renderPhotoGrid();
         document.getElementById('faults_container').innerHTML = "";
-        if (r.faults && r.faults.length > 0) r.faults.forEach(f => addFaultRow(f.type, f.qty, f.unitPrice));
-        else addFaultRow(); 
+        
+        if (r.faults && r.faults.length > 0) {
+            r.faults.forEach(f => addFaultRow(f.type, f.qty, f.unitPrice));
+        } else {
+            addFaultRow(); 
+        }
+
         document.getElementById('submitBtn').innerText = "Confirm Edit";
         document.getElementById('cancelEditBtn').classList.remove('hidden');
         window.scrollTo(0,0);
     }
-    function cancelEdit() { editingId=null; document.getElementById('barcode').value=""; tempPhotos=[]; renderPhotoGrid(); resetFaultRows(); document.getElementById('submitBtn').innerText="Save & Sync Cloud"; document.getElementById('cancelEditBtn').classList.add('hidden'); }
+
+    function cancelEdit() { 
+        editingId=null; 
+        document.getElementById('barcode').value=""; 
+        tempPhotos=[]; 
+        renderPhotoGrid(); 
+        resetFaultRows(); 
+        document.getElementById('submitBtn').innerText="Save & Sync Cloud"; 
+        document.getElementById('cancelEditBtn').classList.add('hidden'); 
+    }
+    
     function renderPhotoGrid() { document.getElementById('photo_grid').innerHTML = tempPhotos.map((src, i) => `<div class="photo-item"><img src="${src}"><div class="no-print" style="position:absolute;top:0;right:0;background:red;color:white;padding:2px 6px;" onclick="tempPhotos.splice(${i},1);renderPhotoGrid()">X</div></div>`).join('') + (tempPhotos.length<5?`<div class="photo-item no-print" onclick="document.getElementById('photo_input').click()">📷</div>`:''); }
     function createNewRMA() { const v = document.getElementById('new_rma_input').value.trim(); if(v) { currentRMA = v; showPage('page_entry'); renderEntryTable(); } }
-    function resetFaultRows() { document.getElementById('faults_container').innerHTML = ""; addFaultRow(); }
+    
+    function resetFaultRows() { 
+        document.getElementById('faults_container').innerHTML = ""; 
+        addFaultRow(); 
+    }
+    
     function resetForm() { cancelEdit(); }
     function handleFiles(input) { Array.from(input.files).forEach(file => { const r = new FileReader(); r.onload = (e) => { if(tempPhotos.length<5) tempPhotos.push(e.target.result); renderPhotoGrid(); }; r.readAsDataURL(file); }); }
     function exportSingleRMA() { alert("Excel Export (Simulated)"); }
