@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v11.2 (管理员编辑版)</title>
+    <title>LED维修管理系统 v11.3 (Owner归属修复版)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -11,8 +11,6 @@
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); max-width: 850px; margin: auto; min-height: 90vh; }
         .page { display: none; }
         .page.active { display: block; }
-        
-        /* UI Components */
         .user-bar { background: #3a3a3c; color: white; padding: 12px 15px; border-radius: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
         .info-bar { background: var(--primary); color: white; padding: 12px; border-radius: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
         label { display: block; margin: 15px 0 5px; font-weight: 600; color: #3a3a3c; }
@@ -26,7 +24,6 @@
         .btn-danger { background: var(--danger); color: white; }
         .btn-outline { background: none; color: var(--primary); border: 1px solid var(--primary); }
         .btn-action { padding: 6px 12px; font-size: 13px; margin-left: 5px; border-radius: 6px; }
-        
         .fault-row { background: #f0f0f5; padding: 12px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid var(--primary); }
         .flex-container { display: flex; gap: 8px; align-items: center; }
         .col-main { flex: 2.2; }
@@ -39,7 +36,6 @@
         .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
         .photo-item { position: relative; width: 100%; aspect-ratio: 1; border: 2px dashed #d1d1d6; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f9f9fb; cursor: pointer; }
         .photo-item img { width: 100%; height: 100%; object-fit: cover; }
-        
         table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 20px; }
         th, td { border-bottom: 1px solid #e5e5ea; padding: 12px 8px; text-align: left; }
         .total-row { background: #f2f2f7; font-weight: bold; color: var(--danger); }
@@ -48,35 +44,25 @@
         .not-synced { background: var(--warning); }
         .admin-badge { background: var(--danger); color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; vertical-align: middle; margin-left: 5px; }
 
-        /* --- PDF/打印 专用样式 (ROE 企业版) --- */
         @media print {
             @page { margin: 15mm; size: A4; }
             body { background: white; padding: 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
             .card { box-shadow: none; max-width: 100%; width: 100%; padding: 0; margin: 0; }
             .no-print, #input_area, .user-bar, .info-bar, .btn-full, #page_login, #page_list, #page_new_rma, #loginBtn, .btn-action, .sync-badge { display: none !important; }
             .page { display: none; }
-            /* 强制只显示详情页 */
             #page_entry.active { display: block !important; }
-
-            /* 报表头部 */
             #print-header { display: flex !important; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--roe-red); padding-bottom: 15px; margin-bottom: 20px; }
             .company-info { font-size: 10pt; color: #333; line-height: 1.4; }
             .company-name { font-size: 18pt; font-weight: bold; color: var(--roe-red); margin-bottom: 5px; text-transform: uppercase; }
             .logo-container img { height: 60px; width: auto; }
-
-            /* 报表标题 */
             .report-title-block { text-align: center; margin-bottom: 20px; display: block !important; }
             .report-title { font-size: 22pt; font-weight: bold; margin: 0; color: #000; }
             .report-subtitle { font-size: 14pt; color: #666; margin-top: 5px; }
-
-            /* 表格 */
             table { width: 100%; border: 1px solid #000; font-size: 11pt; border-collapse: collapse; }
             th { background-color: #f0f0f0 !important; color: black !important; font-weight: bold; border: 1px solid #000; padding: 8px; }
             td { border: 1px solid #ccc; padding: 8px; }
             .total-row { background-color: white !important; border-top: 2px solid #000; }
             .total-row td { font-size: 12pt; color: black !important; font-weight: bold; }
-            
-            /* 其他 */
             .photo-grid { display: block; margin-top: 15px; page-break-inside: avoid; }
             .photo-item { display: inline-block; width: 120px; height: 120px; margin-right: 10px; border: 1px solid #ddd; }
             #print-footer { display: block !important; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9pt; color: #999; border-top: 1px solid #eee; padding-top: 5px; }
@@ -183,8 +169,8 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    // v11.2 数据隔离
-    let records = JSON.parse(localStorage.getItem('led_repair_v112') || '[]');
+    // v11.3: 更新数据结构，引入 owner
+    let records = JSON.parse(localStorage.getItem('led_repair_v113') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
@@ -240,7 +226,7 @@
             serverRecords.forEach(srvRec => { if (!merged.find(m => m.id == srvRec.id)) merged.push(srvRec); });
             
             records = merged;
-            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             status.innerText = "Done!"; setTimeout(() => { status.style.display='none'; }, 2000);
             if(document.getElementById('page_list').classList.contains('active')) renderWorkerRMAList();
         } catch(e) { status.innerText = "Sync Failed"; setTimeout(() => { status.style.display='none'; }, 3000); }
@@ -248,7 +234,6 @@
 
     function logout() { localStorage.removeItem('repair_user'); localStorage.removeItem('repair_role'); location.reload(); }
 
-    // --- Admin: Load RMA List ---
     async function loadAdminRMAList() {
         const container = document.getElementById('admin_rma_list_container');
         container.innerHTML = "<p style='text-align:center'>Loading...</p>";
@@ -259,7 +244,6 @@
         } catch (e) { container.innerHTML = "Load Failed"; }
     }
 
-    // 【修改】管理员点击卡片 -> 进入编辑模式
     function renderAdminCards(list) {
         const container = document.getElementById('admin_rma_list_container');
         if(list.length === 0) { container.innerHTML = "<p>No Data</p>"; return; }
@@ -277,33 +261,23 @@
         renderAdminCards(allAdminRMAs.filter(i => i.name.toLowerCase().includes(kw) || String(i.worker).toLowerCase().includes(kw)));
     }
 
-    // 【新增】管理员加载 RMA 详情并进入录入页
     async function adminEditRMA(rmaName) {
         currentRMA = rmaName;
-        // 先清理本地该 RMA 的旧缓存（防止数据冲突）
         records = records.filter(r => r.rma !== rmaName); 
-        
-        // 显示加载提示
-        showPage('page_entry'); // 提前跳转
+        showPage('page_entry');
         document.querySelector('#recordTable tbody').innerHTML = "<tr><td colspan='7' style='text-align:center'>正在从云端拉取完整数据...</td></tr>";
-
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
             const data = await resp.json();
             const serverRecords = data.map(parseServerRow);
-            
-            // 将拉取的数据合并入 records
             records = [...records, ...serverRecords];
-            localStorage.setItem('led_repair_v112', JSON.stringify(records)); // 保存
-            
-            // 刷新表格
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderEntryTable();
         } catch (e) { alert("数据拉取失败"); }
     }
 
-    // 辅助函数：解析服务器行数据
     function parseServerRow(row) {
-        // A=0(Time), B=1(RMA), C=2(Barcode), D=3(Details), E=4(Total), F=5(User), G=6(ID)
+        // A=0(Time), B=1(RMA), C=2(Barcode), D=3(Details), E=4(Total), F=5(User), G=6(ID), H=7(Owner)
         const faultsArr = [];
         const detailStr = String(row[3]); 
         if(detailStr) {
@@ -316,38 +290,34 @@
         return {
             time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
             moduleTotal: parseFloat(row[4]), user: row[5], id: row[6],
+            owner: (row.length > 7) ? row[7] : row[5], // 读取 Owner，如果不存在则回退 User
             photos: [], synced: true
         };
     }
 
-    // --- Worker Logic ---
     function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
-        const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
+        const myRMAs = [...new Set(records.filter(r => r.user === currentUser || r.owner === currentUser).map(r => r.rma))];
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
     }
+    
     async function deleteEntireRMA(rma) {
         if(confirm(`⚠️ Delete RMA [${rma}] completely?`)) {
             records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderWorkerRMAList();
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
         }
     }
     function openRMA(rma) { currentRMA = rma; showPage('page_entry'); }
 
-    // --- Entry Logic (Shared) ---
     function showPage(id) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(id).classList.add('active');
-        
-        // 打印标题控制
         if(id === 'page_entry' && currentRMA) {
             document.getElementById('display_rma').innerText = currentRMA;
             document.getElementById('print_rma_num_report').innerText = currentRMA;
             document.getElementById('print_block_report').style.display = 'block'; 
-            
-            // 智能设置返回按钮
             const backBtn = document.getElementById('btn_back_dynamic');
             if(currentRole === 'admin') {
                 document.getElementById('display_user_entry').innerText = currentUser;
@@ -359,19 +329,11 @@
         } else {
             document.querySelectorAll('.report-title-block').forEach(el => el.style.display = 'none');
         }
-
         if(id === 'page_list') renderWorkerRMAList();
         if(id === 'page_entry') { if(editingId===null) resetForm(); renderEntryTable(); }
     }
 
-    // 智能返回逻辑
-    function goBack() {
-        if(currentRole === 'admin') {
-            showPage('page_admin');
-        } else {
-            showPage('page_list');
-        }
-    }
+    function goBack() { if(currentRole === 'admin') { showPage('page_admin'); } else { showPage('page_list'); } }
 
     function addFaultRow(typeVal="碰撞死灯", qtyVal=1, customPrice=null) {
         const container = document.getElementById('faults_container');
@@ -408,24 +370,29 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
-        // 【关键修复】如果是管理员编辑，保留原有 User，如果是新建，则为 Admin
+        // 【关键修复】确保 Owner 归属
         let recordUser = currentUser;
-        if (currentRole === 'admin' && editingId) {
+        let recordOwner = currentUser;
+        
+        if (editingId) {
             const originalRec = records.find(r => r.id === editingId);
-            if (originalRec) recordUser = originalRec.user;
+            if (originalRec) {
+                // 如果是旧记录，尝试保留原来的 Owner。如果是老数据没有Owner，则保留原来的 User 作为 Owner
+                recordOwner = originalRec.owner || originalRec.user;
+            }
         }
 
-        const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: recordUser, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
+        const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: recordUser, owner: recordOwner, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
         if(editingId!==null) records[records.findIndex(r=>r.id===editingId)] = data; else records.push(data);
-        localStorage.setItem('led_repair_v112', JSON.stringify(records));
+        localStorage.setItem('led_repair_v113', JSON.stringify(records));
 
         try {
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
                 action: "save", time: data.time, id: data.id, rma: data.rma, barcode: data.barcode, 
-                details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, user: data.user 
+                details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, user: data.user, owner: data.owner 
             })});
             const savedRecord = records.find(r => r.id === data.id);
-            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v112', JSON.stringify(records)); }
+            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v113', JSON.stringify(records)); }
         } catch(e){}
         cancelEdit(); renderEntryTable(); btn.disabled = false; btn.innerText = "Save & Sync Cloud";
     }
@@ -435,7 +402,7 @@
         if(confirm(`Delete [${r.barcode}]?`)) {
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) }); } catch(e){}
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderEntryTable();
         }
     }
