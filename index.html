@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v11.10 (User字段锁定版)</title>
+    <title>LED维修管理系统 v12.0 (权限分立版)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -172,7 +172,8 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    let records = JSON.parse(localStorage.getItem('led_repair_v1110') || '[]');
+    // v12.0 数据版本
+    let records = JSON.parse(localStorage.getItem('led_repair_v120') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
@@ -189,7 +190,6 @@
                 document.getElementById('display_user').innerText = currentUser;
                 document.getElementById('display_user_entry').innerText = currentUser;
                 showPage('page_list');
-                syncWorkerData();
             }
         }
     };
@@ -206,41 +206,15 @@
             if(data.result === "success") {
                 currentUser = user; currentRole = data.role;
                 localStorage.setItem('repair_user', user); localStorage.setItem('repair_role', currentRole);
-                if (currentRole === 'worker') { await syncWorkerData(); }
                 location.reload();
             } else { alert("账号或密码错误！"); }
         } catch (e) { alert("网络错误"); }
         finally { btn.disabled = false; btn.innerText = "Login"; }
     }
 
-    async function syncWorkerData() {
-        if(currentRole !== 'worker') return;
-        const status = document.getElementById('sync_status_bar');
-        status.style.display = 'block'; status.innerText = "Syncing History...";
-        try {
-            const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getWorkerData&user=${encodeURIComponent(currentUser)}`);
-            const serverData = await resp.json(); 
-            const serverRecords = serverData.map(parseServerRow);
-            
-            const unsyncedRecords = records.filter(r => r.synced === false);
-            const serverMap = new Map();
-            serverRecords.forEach(r => serverMap.set(r.id, r));
-            const uniqueServerRecords = Array.from(serverMap.values());
-
-            const merged = [...unsyncedRecords];
-            uniqueServerRecords.forEach(srvRec => { 
-                if (!merged.find(m => m.id == srvRec.id)) merged.push(srvRec); 
-            });
-            
-            records = merged;
-            localStorage.setItem('led_repair_v1110', JSON.stringify(records));
-            status.innerText = "Done!"; setTimeout(() => { status.style.display='none'; }, 2000);
-            if(document.getElementById('page_list').classList.contains('active')) renderWorkerRMAList();
-        } catch(e) { status.innerText = "Sync Failed"; setTimeout(() => { status.style.display='none'; }, 3000); }
-    }
-
     function logout() { localStorage.removeItem('repair_user'); localStorage.removeItem('repair_role'); location.reload(); }
 
+    // --- 管理员逻辑 ---
     async function loadAdminRMAList() {
         const container = document.getElementById('admin_rma_list_container');
         container.innerHTML = "<p style='text-align:center'>Loading...</p>";
@@ -255,7 +229,7 @@
         const container = document.getElementById('admin_rma_list_container');
         if(list.length === 0) { container.innerHTML = "<p>No Data</p>"; return; }
         container.innerHTML = list.map(item => `
-            <div class="rma-card" onclick="adminEditRMA('${item.name}')">
+            <div class="rma-card" onclick="loadRMAAndShow('${item.name}')">
                 <div class="rma-card-content">
                     <div><strong>${item.name}</strong><br><small>${item.worker} | ${new Date(item.lastTime).toLocaleDateString()}</small></div>
                     <div style="text-align:right"><span style="color:var(--danger);font-weight:bold;">$${parseFloat(item.totalMoney).toFixed(2)}</span><br><small>${item.count} items</small></div>
@@ -268,24 +242,53 @@
         renderAdminCards(allAdminRMAs.filter(i => i.name.toLowerCase().includes(kw) || String(i.worker).toLowerCase().includes(kw)));
     }
 
-    async function adminEditRMA(rmaName) {
+    // --- 维修员逻辑 ---
+    function renderWorkerRMAList() {
+        const container = document.getElementById('rma_list_container');
+        const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
+        container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="loadRMAAndShow('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="loadRMAAndShow('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
+    }
+    
+    // 【核心统一入口】无论是管理员还是维修员，点击 RMA 都会触发此函数，强制从云端同步
+    async function loadRMAAndShow(rmaName) {
         currentRMA = rmaName;
-        records = records.filter(r => r.rma !== rmaName); 
         showPage('page_entry');
-        document.querySelector('#recordTable tbody').innerHTML = "<tr><td colspan='7' style='text-align:center'>正在从云端拉取完整数据...</td></tr>";
+        document.querySelector('#recordTable tbody').innerHTML = "<tr><td colspan='7' style='text-align:center'>正在从云端拉取最新数据...</td></tr>";
+        
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
             const data = await resp.json();
             
+            // 清理本地旧数据，用云端覆盖 (以 ID 为准)
             const serverRecords = data.map(parseServerRow);
-            const map = new Map();
-            serverRecords.forEach(r => map.set(r.id, r));
-            const uniqueRecords = Array.from(map.values());
-
-            records = [...records, ...uniqueRecords];
-            localStorage.setItem('led_repair_v1110', JSON.stringify(records));
+            const serverMap = new Map();
+            serverRecords.forEach(r => serverMap.set(r.id, r));
+            
+            // 如果本地有一些还没同步的新数据，保留它们
+            const localUnsynced = records.filter(r => r.rma === rmaName && r.synced === false);
+            
+            // 重新组合 records：保留非当前RMA的数据 + 当前RMA的云端数据 + 当前RMA的本地未同步数据
+            const otherRMARecords = records.filter(r => r.rma !== rmaName);
+            
+            // 合并当前 RMA 的数据
+            const currentRMARecords = [...Array.from(serverMap.values()), ...localUnsynced];
+            
+            records = [...otherRMARecords, ...currentRMARecords];
+            localStorage.setItem('led_repair_v120', JSON.stringify(records));
             renderEntryTable();
-        } catch (e) { alert("数据拉取失败"); }
+        } catch (e) { 
+            alert("同步失败，显示本地缓存"); 
+            renderEntryTable(); 
+        }
+    }
+
+    async function deleteEntireRMA(rma) {
+        if(confirm(`⚠️ Delete RMA [${rma}]?`)) {
+            records = records.filter(r => r.rma !== rma);
+            localStorage.setItem('led_repair_v120', JSON.stringify(records));
+            renderWorkerRMAList();
+            try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
+        }
     }
 
     function parseServerRow(row) {
@@ -299,35 +302,17 @@
             });
         }
         
-        // F列(索引5) = User, H列(索引7) = Owner
-        let rawUser = row[5]; 
-        let rawOwner = (row.length > 7 && row[7]) ? row[7] : rawUser; // 若无H列，默认Owner=User
+        // H列(索引7)是 Modifier, F列(索引5)是 User(Creator)
+        let rawModifier = (row.length > 7) ? row[7] : "";
+        let rawUser = row[5];
         
         return {
             time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
-            moduleTotal: parseFloat(row[4]), 
-            user: rawUser, // 前端显示用
-            id: row[6],
-            owner: rawOwner, // 后台归属用
+            moduleTotal: parseFloat(row[4]), user: rawUser, id: row[6],
+            modifier: rawModifier, // 记录修改者
             photos: [], synced: true
         };
     }
-
-    function renderWorkerRMAList() {
-        const container = document.getElementById('rma_list_container');
-        const myRMAs = [...new Set(records.filter(r => r.user === currentUser || r.owner === currentUser).map(r => r.rma))];
-        container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
-    }
-    
-    async function deleteEntireRMA(rma) {
-        if(confirm(`⚠️ Delete RMA [${rma}] completely?`)) {
-            records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v1110', JSON.stringify(records));
-            renderWorkerRMAList();
-            try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
-        }
-    }
-    function openRMA(rma) { currentRMA = rma; showPage('page_entry'); }
 
     function showPage(id) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -347,7 +332,7 @@
             document.querySelectorAll('.report-title-block').forEach(el => el.style.display = 'none');
         }
         if(id === 'page_list') renderWorkerRMAList();
-        if(id === 'page_entry') { if(editingId===null) resetForm(); renderEntryTable(); }
+        if(id === 'page_entry') { if(editingId===null) resetForm(); /* table rendered by loadRMA */ }
     }
 
     function goBack() { if(currentRole === 'admin') { showPage('page_admin'); } else { showPage('page_list'); } }
@@ -373,7 +358,6 @@
         row.querySelector('.f_price_display').value = (unitPrice * qty).toFixed(2);
     }
 
-    // 【核心修复：User 锁定逻辑】
     async function saveRecord() {
         const sn = document.getElementById('barcode').value.trim();
         if(!sn) return alert("Barcode Required");
@@ -388,23 +372,22 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
-        // 默认新建：User = Owner = Me
-        let targetUser = currentUser; 
-        let targetOwner = currentUser; 
+        // 【关键逻辑：User锁定，Modifier记录】
+        let targetUser = currentUser; // 默认：新建时，User是我
+        let targetModifier = currentUser; // 默认：新建时，Modifier是我
         
-        // 如果是编辑已有记录
         if (editingId) {
-            // 关键：必须强制转为 String 比较，防止 Number vs String 不匹配
+            // 编辑模式：必须找到原始记录
             const originalRec = records.find(r => String(r.id) === String(editingId));
             if (originalRec) {
-                // User 必须保持原样 (比如维修员名字)
-                targetUser = originalRec.user;
-                // Owner 更新为当前修改者 (管理员名字)
-                targetOwner = currentUser;
+                // User 永远保持原样 (即使我是管理员，我也不能改 F 列)
+                targetUser = originalRec.user; 
+                // Modifier 变成我 (我是修改者)
+                targetModifier = currentUser;
             }
         }
 
-        const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: targetUser, owner: targetOwner, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
+        const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: targetUser, modifier: targetModifier, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
         
         if(editingId!==null) {
             const idx = records.findIndex(r => String(r.id) === String(editingId));
@@ -412,15 +395,17 @@
         } else {
             records.push(data);
         }
-        localStorage.setItem('led_repair_v1110', JSON.stringify(records));
+        localStorage.setItem('led_repair_v120', JSON.stringify(records));
 
         try {
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
                 action: "save", time: data.time, id: data.id, rma: data.rma, barcode: data.barcode, 
-                details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, user: data.user, owner: data.owner 
+                details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, 
+                user: data.user,        // F列：始终是 Creator
+                modifier: data.modifier // H列：记录 Modifier
             })});
             const savedRecord = records.find(r => r.id === data.id);
-            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v1110', JSON.stringify(records)); }
+            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v120', JSON.stringify(records)); }
         } catch(e){}
         cancelEdit(); renderEntryTable(); btn.disabled = false; btn.innerText = "Save & Sync Cloud";
     }
@@ -431,18 +416,26 @@
             if(btn) { btn.innerText = "Deleting..."; btn.disabled = true; btn.style.opacity="0.6"; }
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) }); } catch(e){}
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v1110', JSON.stringify(records));
+            localStorage.setItem('led_repair_v120', JSON.stringify(records));
             renderEntryTable();
         }
     }
 
     function renderEntryTable() {
         const tbody = document.querySelector('#recordTable tbody');
+        // 只显示当前 RMA 的数据
         const myData = records.filter(r => r.rma === currentRMA);
         let grandTotal = 0;
         tbody.innerHTML = myData.map(r => {
             grandTotal += r.moduleTotal;
             const realIdx = records.indexOf(r);
+            
+            // 显示逻辑：如果 modifier 存在且不同于 user，显示红色修改提示
+            let userDisplay = `<small style="color:#666">${r.user}</small>`;
+            if (r.modifier && r.modifier !== r.user) {
+                userDisplay += `<br><small style="color:red; font-size:9px;">Last edit: ${r.modifier}</small>`;
+            }
+
             return `<tr><td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">Synced</span>':'<span class="sync-badge not-synced">Local</span>'}<br><small>${r.time}</small></td>
                 <td>${r.faults.map(f=>f.type).join('<br>')}</td><td>${r.faults.map(f=>f.qty).join('<br>')}</td><td style="color:var(--danger)">$${r.moduleTotal.toFixed(2)}</td>
                 <td>${r.photos.map(p=>`<img src="${p}" style="width:35px;height:35px;object-fit:cover;">`).join('')}</td>
@@ -450,7 +443,7 @@
                     <button class="btn-action btn-outline" onclick="editIt(${realIdx})">Edit</button>
                     <button class="btn-action btn-danger" onclick="deleteModule(${realIdx}, this)">Del</button>
                 </td>
-                <td><small style="color:#666">${r.user}</small></td></tr>`;
+                <td>${userDisplay}</td></tr>`;
         }).reverse().join('');
         document.getElementById('grand_total_display').innerText = `$${grandTotal.toFixed(2)}`;
     }
