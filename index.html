@@ -286,14 +286,13 @@
         renderAdminCards(allAdminRMAs.filter(i => i.name.toLowerCase().includes(kw) || String(i.worker).toLowerCase().includes(kw)));
     }
 
-    // Admin load RMA detail and enter entry page
+    // Admin load RMA detail
     async function adminEditRMA(rmaName) {
         currentRMA = rmaName;
         // Clear old cache for this RMA
         records = records.filter(r => r.rma !== rmaName); 
         
-        // Show loading
-        showPage('page_entry'); // Jump ahead
+        showPage('page_entry');
         document.querySelector('#recordTable tbody').innerHTML = "<tr><td colspan='7' style='text-align:center'>Fetching full data from cloud...</td></tr>";
 
         try {
@@ -301,11 +300,8 @@
             const data = await resp.json();
             const serverRecords = data.map(parseServerRow);
             
-            // Merge fetched data into records
             records = [...records, ...serverRecords];
-            localStorage.setItem('led_repair_v112', JSON.stringify(records)); // Save
-            
-            // Refresh table
+            localStorage.setItem('led_repair_v112', JSON.stringify(records));
             renderEntryTable();
         } catch (e) { alert("Failed to fetch data"); }
     }
@@ -335,6 +331,7 @@
         const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
     }
+    
     async function deleteEntireRMA(rma) {
         if(confirm(`⚠️ Delete RMA [${rma}] completely?`)) {
             records = records.filter(r => r.rma !== rma);
@@ -343,20 +340,61 @@
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
         }
     }
-    function openRMA(rma) { currentRMA = rma; showPage('page_entry'); }
+
+    // 【UPDATED】Worker Entry Logic to fetch server data
+    async function openRMA(rmaName) { 
+        currentRMA = rmaName; 
+        showPage('page_entry'); 
+        
+        // Show loading state in table
+        const tbody = document.querySelector('#recordTable tbody');
+        tbody.innerHTML = "<tr><td colspan='7' style='text-align:center'>Loading data from server...</td></tr>";
+
+        try {
+            // Fetch from server like Admin
+            const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
+            const data = await resp.json();
+            const serverRecords = data.map(parseServerRow);
+
+            // MERGE LOGIC:
+            // 1. Keep records from OTHER RMAs
+            // 2. Keep records from THIS RMA that are NOT synced (local unsaved drafts)
+            // 3. Add fresh server records
+            const otherRecords = records.filter(r => r.rma !== rmaName);
+            const localUnsynced = records.filter(r => r.rma === rmaName && !r.synced);
+            
+            // Rebuild records array
+            records = [...otherRecords, ...localUnsynced];
+            
+            // Append server records (checking for duplicates if necessary)
+            serverRecords.forEach(srvItem => {
+                // Only add if not present in local unsynced (avoid ID conflict)
+                if (!localUnsynced.find(loc => loc.id == srvItem.id)) {
+                    records.push(srvItem);
+                }
+            });
+
+            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            renderEntryTable();
+
+        } catch (e) {
+            console.error(e);
+            // Fallback: Just show what we have locally if network fails
+            renderEntryTable(); 
+            alert("Network error: Showing local data only.");
+        }
+    }
 
     // --- Entry Logic (Shared) ---
     function showPage(id) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(id).classList.add('active');
         
-        // Print Title Control
         if(id === 'page_entry' && currentRMA) {
             document.getElementById('display_rma').innerText = currentRMA;
             document.getElementById('print_rma_num_report').innerText = currentRMA;
             document.getElementById('print_block_report').style.display = 'block'; 
             
-            // Smart Back Button
             const backBtn = document.getElementById('btn_back_dynamic');
             if(currentRole === 'admin') {
                 document.getElementById('display_user_entry').innerText = currentUser;
@@ -370,10 +408,13 @@
         }
 
         if(id === 'page_list') renderWorkerRMAList();
-        if(id === 'page_entry') { if(editingId===null) resetForm(); renderEntryTable(); }
+        // Removed automatic renderEntryTable here because openRMA/adminEditRMA handles it async
+        if(id === 'page_entry' && editingId===null && document.querySelector('#recordTable tbody').innerText === "") {
+             // Fallback if accessed not via openRMA (e.g. new RMA)
+             renderEntryTable();
+        }
     }
 
-    // Smart Back Logic
     function goBack() {
         if(currentRole === 'admin') {
             showPage('page_admin');
@@ -417,7 +458,6 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
-        // If admin edit, keep original user, if new, use Admin
         let recordUser = currentUser;
         if (currentRole === 'admin' && editingId) {
             const originalRec = records.find(r => r.id === editingId);
@@ -439,13 +479,33 @@
         cancelEdit(); renderEntryTable(); btn.disabled = false; btn.innerText = "Save & Sync Cloud";
     }
 
-    async function deleteModule(idx) {
+    // 【UPDATED】Delete Module with Server Wait & Loading State
+    async function deleteModule(idx, btn) {
         const r = records[idx];
-        if(confirm(`Delete [${r.barcode}]?`)) {
-            try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) }); } catch(e){}
+        if(!confirm(`Delete [${r.barcode}]?`)) return;
+        
+        // Loading UI
+        const originalText = btn.innerText;
+        btn.innerText = "Deleting...";
+        btn.disabled = true;
+
+        try { 
+            // Wait for server request
+            await fetch(GOOGLE_SCRIPT_URL, { 
+                method: 'POST', 
+                mode: 'no-cors', 
+                body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) 
+            });
+            
+            // On success (or request sent), remove local data
             records.splice(idx, 1);
             localStorage.setItem('led_repair_v112', JSON.stringify(records));
             renderEntryTable();
+            
+        } catch(e) {
+            alert("Network Error: Could not delete.");
+            btn.innerText = originalText;
+            btn.disabled = false;
         }
     }
 
@@ -456,10 +516,11 @@
         tbody.innerHTML = myData.map(r => {
             grandTotal += r.moduleTotal;
             const realIdx = records.indexOf(r);
+            // Updated delete button to pass 'this'
             return `<tr><td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">Synced</span>':'<span class="sync-badge not-synced">Local</span>'}<br><small>${r.time}</small></td>
                 <td>${r.faults.map(f=>f.type).join('<br>')}</td><td>${r.faults.map(f=>f.qty).join('<br>')}</td><td style="color:var(--danger)">$${r.moduleTotal.toFixed(2)}</td>
                 <td>${r.photos.map(p=>`<img src="${p}" style="width:35px;height:35px;object-fit:cover;">`).join('')}</td>
-                <td class="no-print"><button class="btn-action btn-outline" onclick="editIt(${realIdx})">Edit</button><button class="btn-action btn-danger" onclick="deleteModule(${realIdx})">Del</button></td>
+                <td class="no-print"><button class="btn-action btn-outline" onclick="editIt(${realIdx})">Edit</button><button class="btn-action btn-danger" onclick="deleteModule(${realIdx}, this)">Del</button></td>
                 <td><small style="color:#666">${r.user}</small></td></tr>`;
         }).reverse().join('');
         document.getElementById('grand_total_display').innerText = `$${grandTotal.toFixed(2)}`;
@@ -477,7 +538,7 @@
     }
     function cancelEdit() { editingId=null; document.getElementById('barcode').value=""; tempPhotos=[]; renderPhotoGrid(); resetFaultRows(); document.getElementById('submitBtn').innerText="Save & Sync Cloud"; document.getElementById('cancelEditBtn').classList.add('hidden'); }
     function renderPhotoGrid() { document.getElementById('photo_grid').innerHTML = tempPhotos.map((src, i) => `<div class="photo-item"><img src="${src}"><div class="no-print" style="position:absolute;top:0;right:0;background:red;color:white;padding:2px 6px;" onclick="tempPhotos.splice(${i},1);renderPhotoGrid()">X</div></div>`).join('') + (tempPhotos.length<5?`<div class="photo-item no-print" onclick="document.getElementById('photo_input').click()">📷</div>`:''); }
-    function createNewRMA() { const v = document.getElementById('new_rma_input').value.trim(); if(v) { currentRMA = v; showPage('page_entry'); } }
+    function createNewRMA() { const v = document.getElementById('new_rma_input').value.trim(); if(v) { currentRMA = v; showPage('page_entry'); renderEntryTable(); } }
     function resetFaultRows() { document.getElementById('faults_container').innerHTML = ""; addFaultRow(); }
     function resetForm() { cancelEdit(); }
     function handleFiles(input) { Array.from(input.files).forEach(file => { const r = new FileReader(); r.onload = (e) => { if(tempPhotos.length<5) tempPhotos.push(e.target.result); renderPhotoGrid(); }; r.readAsDataURL(file); }); }
