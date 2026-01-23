@@ -1,9 +1,35 @@
+明白。通过引入 **Owner（归属者/创建人）** 和 **User（当前操作员）** 的分离，可以完美解决“管理员修改后，维修员看不到单据”的问题，同时记录下实际修改人。
+
+以下是修改后的完整代码。我进行了以下核心更改：
+
+1. **数据结构更新 (`parseServerRow`)**：
+* 读取服务器数据的第 **H列 (索引 7)** 作为 `owner` (归属者)。
+* 读取服务器数据的第 **F列 (索引 5)** 作为 `user` (操作员)。
+* 增加了向后兼容逻辑：如果旧数据没有 Owner，默认 Owner = User。
+
+
+2. **保存逻辑更新 (`saveRecord`)**：
+* **User (操作员)**：永远强制设为 `currentUser` (即当前点击保存按钮的人，无论是管理员还是维修员)。
+* **Owner (归属者)**：
+* 如果是 **编辑模式**：保持原记录的 Owner 不变。
+* 如果是 **新建模式**：尝试查找该 RMA 是否已有其他记录。如果有，继承该 RMA 的 Owner；如果没有，Owner 设为当前用户。
+
+
+* **Fetch 请求**：在发送给 Google Script 的 JSON 数据中，新增了 `owner` 字段。*(注意：您需要在 Google Apps Script 端确保能接收并写入 H 列，这里我完成了前端的所有准备)*。
+
+
+3. **列表显示更新 (`renderWorkerRMAList`)**：
+* 维修员的列表筛选条件从 `r.user === currentUser` 改为了 `r.owner === currentUser`。这样即使管理员（User=Admin）修改了某条记录，维修员（Owner=Worker）依然能看到它。
+
+
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Repair System v11.2 (Admin Edition)</title>
+    <title>LED Repair System v11.3 (Owner Logic)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -183,8 +209,8 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    // v11.2 Data Isolation
-    let records = JSON.parse(localStorage.getItem('led_repair_v112') || '[]');
+    // v11.3 Data Isolation & Owner Logic
+    let records = JSON.parse(localStorage.getItem('led_repair_v113') || '[]'); // Bump version
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
@@ -249,7 +275,7 @@
             serverRecords.forEach(srvRec => { if (!merged.find(m => m.id == srvRec.id)) merged.push(srvRec); });
             
             records = merged;
-            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             status.innerText = "Done!"; setTimeout(() => { status.style.display='none'; }, 2000);
             if(document.getElementById('page_list').classList.contains('active')) renderWorkerRMAList();
         } catch(e) { status.innerText = "Sync Failed"; setTimeout(() => { status.style.display='none'; }, 3000); }
@@ -287,7 +313,7 @@
 
     async function adminEditRMA(rmaName) {
         currentRMA = rmaName;
-        // Clear old cache for this RMA
+        // Clear old cache for this RMA to force fresh pull
         records = records.filter(r => r.rma !== rmaName); 
         
         showPage('page_entry');
@@ -299,12 +325,14 @@
             const serverRecords = data.map(parseServerRow);
             
             records = [...records, ...serverRecords];
-            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderEntryTable();
         } catch (e) { alert("Failed to fetch data"); }
     }
 
+    // 【UPDATED】Parse Server Row (Column F=User, Column H=Owner)
     function parseServerRow(row) {
+        // A=0(Time), B=1(RMA), C=2(Barcode), D=3(Details), E=4(Total), F=5(User), G=6(ID), H=7(Owner)
         const faultsArr = [];
         const detailStr = String(row[3]); 
         if(detailStr) {
@@ -314,9 +342,18 @@
                 faultsArr.push({ type: type, qty: parseInt(qty)||1, unitPrice: unitP });
             });
         }
+        
+        // Logic: row[5] is the Operator (User), row[7] is the Creator (Owner)
+        // Fallback: If H column (row[7]) is empty (old data), assume Owner = User
+        const rowUser = row[5];
+        const rowOwner = row[7] ? row[7] : row[5];
+
         return {
             time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
-            moduleTotal: parseFloat(row[4]), user: row[5], id: row[6],
+            moduleTotal: parseFloat(row[4]), 
+            user: rowUser,    // The actual operator (Admin or Worker)
+            owner: rowOwner,  // The original owner
+            id: row[6],
             photos: [], synced: true
         };
     }
@@ -324,14 +361,17 @@
     // --- Worker Logic ---
     function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
-        const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
+        // 【UPDATED】Filter by OWNER (Column H), not USER (Column F)
+        // This ensures Workers still see their RMA even if Admin edited it (User changed to Admin)
+        const myRMAs = [...new Set(records.filter(r => r.owner === currentUser).map(r => r.rma))];
+        
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
     }
     
     async function deleteEntireRMA(rma) {
         if(confirm(`⚠️ Delete RMA [${rma}] completely?`)) {
             records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderWorkerRMAList();
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
         }
@@ -360,7 +400,7 @@
                 }
             });
 
-            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderEntryTable();
 
         } catch (e) {
@@ -380,9 +420,8 @@
             document.getElementById('print_rma_num_report').innerText = currentRMA;
             document.getElementById('print_block_report').style.display = 'block'; 
             
-            // Ensure at least one fault row is present whenever we enter page_entry
             if(editingId === null) {
-                resetForm(); // This calls resetFaultRows() which ensures 1 row
+                resetForm(); 
             }
 
             const backBtn = document.getElementById('btn_back_dynamic');
@@ -399,7 +438,6 @@
 
         if(id === 'page_list') renderWorkerRMAList();
         
-        // Safety: ensure default row exists if switching pages
         if(id === 'page_entry' && document.getElementById('faults_container').children.length === 0) {
             addFaultRow();
         }
@@ -448,37 +486,60 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
-        // 【UPDATED】Ownership Logic
-        let recordUser = currentUser;
-        
-        // If Admin is saving
-        if (currentRole === 'admin') {
-            if (editingId) {
-                // Scenario 1: Editing existing record -> Keep Original User
-                const originalRec = records.find(r => r.id === editingId);
-                if (originalRec) recordUser = originalRec.user;
+        // 【UPDATED】Separate User and Owner
+        let recordUser = currentUser; // F Column: The person performing the action (Always current user)
+        let recordOwner = currentUser; // H Column: The original creator of the RMA
+
+        // Determine Owner
+        if (editingId) {
+            // Editing: Keep original owner
+            const originalRec = records.find(r => r.id === editingId);
+            if (originalRec && originalRec.owner) {
+                recordOwner = originalRec.owner; 
+            } else if (originalRec) {
+                recordOwner = originalRec.user; // Fallback for old records
+            }
+        } else {
+            // New Record: Inherit owner from RMA siblings
+            const existingRmaRec = records.find(r => r.rma === currentRMA && r.owner);
+            if (existingRmaRec) {
+                recordOwner = existingRmaRec.owner;
             } else {
-                // Scenario 2: Adding NEW record -> Check if RMA already has an owner
-                const existingRmaRec = records.find(r => r.rma === currentRMA);
-                if (existingRmaRec) {
-                    recordUser = existingRmaRec.user; // Inherit RMA owner
-                }
-                // Else: It's a brand new RMA created by Admin, so user remains Admin
+                // Completely new RMA: Owner is Creator
+                recordOwner = currentUser;
             }
         }
-        // If Worker is saving, user is always currentUser (Worker)
 
-        const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: recordUser, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
+        const data = { 
+            id: editingId||Date.now(), 
+            rma: currentRMA, 
+            barcode: sn, 
+            faults, 
+            moduleTotal: total, 
+            user: recordUser,   // F Col (Operator)
+            owner: recordOwner, // H Col (Owner)
+            time: new Date().toLocaleString(), 
+            photos: [...tempPhotos], 
+            synced: false 
+        };
+
         if(editingId!==null) records[records.findIndex(r=>r.id===editingId)] = data; else records.push(data);
-        localStorage.setItem('led_repair_v112', JSON.stringify(records));
+        localStorage.setItem('led_repair_v113', JSON.stringify(records));
 
         try {
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
-                action: "save", time: data.time, id: data.id, rma: data.rma, barcode: data.barcode, 
-                details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, user: data.user 
+                action: "save", 
+                time: data.time, 
+                id: data.id, 
+                rma: data.rma, 
+                barcode: data.barcode, 
+                details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), 
+                total: data.moduleTotal, 
+                user: data.user,  // To Column F
+                owner: data.owner // To Column H (New)
             })});
             const savedRecord = records.find(r => r.id === data.id);
-            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v112', JSON.stringify(records)); }
+            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v113', JSON.stringify(records)); }
         } catch(e){}
         cancelEdit(); renderEntryTable(); btn.disabled = false; btn.innerText = "Save & Sync Cloud";
     }
@@ -498,7 +559,7 @@
                 body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) 
             });
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v112', JSON.stringify(records));
+            localStorage.setItem('led_repair_v113', JSON.stringify(records));
             renderEntryTable();
         } catch(e) {
             alert("Network Error: Could not delete.");
@@ -514,6 +575,7 @@
         tbody.innerHTML = myData.map(r => {
             grandTotal += r.moduleTotal;
             const realIdx = records.indexOf(r);
+            // Display 'r.user' (Column F) in the table so we see WHO operated/edited last
             return `<tr><td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">Synced</span>':'<span class="sync-badge not-synced">Local</span>'}<br><small>${r.time}</small></td>
                 <td>${r.faults.map(f=>f.type).join('<br>')}</td><td>${r.faults.map(f=>f.qty).join('<br>')}</td><td style="color:var(--danger)">$${r.moduleTotal.toFixed(2)}</td>
                 <td>${r.photos.map(p=>`<img src="${p}" style="width:35px;height:35px;object-fit:cover;">`).join('')}</td>
@@ -529,7 +591,6 @@
         tempPhotos = [...r.photos]; renderPhotoGrid();
         document.getElementById('faults_container').innerHTML = "";
         
-        // 【UPDATED】Ensure at least one fault row shows up if data is corrupt/empty
         if (r.faults && r.faults.length > 0) {
             r.faults.forEach(f => addFaultRow(f.type, f.qty, f.unitPrice));
         } else {
@@ -546,7 +607,7 @@
         document.getElementById('barcode').value=""; 
         tempPhotos=[]; 
         renderPhotoGrid(); 
-        resetFaultRows(); // This ensures 1 empty row
+        resetFaultRows(); 
         document.getElementById('submitBtn').innerText="Save & Sync Cloud"; 
         document.getElementById('cancelEditBtn').classList.add('hidden'); 
     }
@@ -554,7 +615,6 @@
     function renderPhotoGrid() { document.getElementById('photo_grid').innerHTML = tempPhotos.map((src, i) => `<div class="photo-item"><img src="${src}"><div class="no-print" style="position:absolute;top:0;right:0;background:red;color:white;padding:2px 6px;" onclick="tempPhotos.splice(${i},1);renderPhotoGrid()">X</div></div>`).join('') + (tempPhotos.length<5?`<div class="photo-item no-print" onclick="document.getElementById('photo_input').click()">📷</div>`:''); }
     function createNewRMA() { const v = document.getElementById('new_rma_input').value.trim(); if(v) { currentRMA = v; showPage('page_entry'); renderEntryTable(); } }
     
-    // 【UPDATED】Explicitly ensures addFaultRow is called
     function resetFaultRows() { 
         document.getElementById('faults_container').innerHTML = ""; 
         addFaultRow(); 
@@ -566,3 +626,5 @@
 </script>
 </body>
 </html>
+
+```
