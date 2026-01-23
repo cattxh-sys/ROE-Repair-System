@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v11.6 (归属权终极修复)</title>
+    <title>LED维修管理系统 v11.7 (Owner修复版)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -12,7 +12,6 @@
         .page { display: none; }
         .page.active { display: block; }
         
-        /* UI Components */
         .user-bar { background: #3a3a3c; color: white; padding: 12px 15px; border-radius: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
         .info-bar { background: var(--primary); color: white; padding: 12px; border-radius: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
         label { display: block; margin: 15px 0 5px; font-weight: 600; color: #3a3a3c; }
@@ -46,6 +45,8 @@
         .sync-badge { font-size: 10px; padding: 2px 4px; border-radius: 4px; margin-left: 5px; color:white; }
         .synced { background: var(--success); }
         .not-synced { background: var(--warning); }
+        
+        /* 管理员模式标识 */
         .admin-badge { background: var(--danger); color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; vertical-align: middle; margin-left: 5px; }
 
         @media print {
@@ -55,18 +56,22 @@
             .no-print, #input_area, .user-bar, .info-bar, .btn-full, #page_login, #page_list, #page_new_rma, #loginBtn, .btn-action, .sync-badge { display: none !important; }
             .page { display: none; }
             #page_entry.active { display: block !important; }
+            
             #print-header { display: flex !important; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--roe-red); padding-bottom: 15px; margin-bottom: 20px; }
             .company-info { font-size: 10pt; color: #333; line-height: 1.4; }
             .company-name { font-size: 18pt; font-weight: bold; color: var(--roe-red); margin-bottom: 5px; text-transform: uppercase; }
             .logo-container img { height: 60px; width: auto; }
+            
             .report-title-block { text-align: center; margin-bottom: 20px; display: block !important; }
             .report-title { font-size: 22pt; font-weight: bold; margin: 0; color: #000; }
             .report-subtitle { font-size: 14pt; color: #666; margin-top: 5px; }
+            
             table { width: 100%; border: 1px solid #000; font-size: 11pt; border-collapse: collapse; }
             th { background-color: #f0f0f0 !important; color: black !important; font-weight: bold; border: 1px solid #000; padding: 8px; }
             td { border: 1px solid #ccc; padding: 8px; }
             .total-row { background-color: white !important; border-top: 2px solid #000; }
             .total-row td { font-size: 12pt; color: black !important; font-weight: bold; }
+            
             .photo-grid { display: block; margin-top: 15px; page-break-inside: avoid; }
             .photo-item { display: inline-block; width: 120px; height: 120px; margin-right: 10px; border: 1px solid #ddd; }
             #print-footer { display: block !important; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9pt; color: #999; border-top: 1px solid #eee; padding-top: 5px; }
@@ -130,13 +135,15 @@
 
     <div id="page_entry" class="page">
         <div class="no-print">
-            <div class="user-bar"><span>操作员：<strong id="display_user_entry">--</strong> <span id="admin_edit_badge" class="admin-badge" style="display:none">管理员模式</span></span></div>
+            <div class="user-bar">
+                <span>操作员：<strong id="display_user_entry">--</strong> <span id="admin_edit_badge" class="admin-badge" style="display:none">管理员模式</span></span>
+            </div>
             <div class="info-bar">
                 <span>RMA: <strong id="display_rma">--</strong></span>
                 <div>
                     <button class="btn-action" style="background:white; color:black;" onclick="exportSingleRMA()">Excel</button>
                     <button class="btn-action" style="background:white; color:black;" onclick="window.print()">PDF</button>
-                    <button class="btn-action" id="btn_back_dynamic" style="background:rgba(255,255,255,0.2); color:white;" onclick="goBack()">返回</button>
+                    <button class="btn-action" id="btn_back_smart" style="background:rgba(255,255,255,0.2); color:white;" onclick="goBack()">返回</button>
                 </div>
             </div>
         </div>
@@ -173,8 +180,8 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    // v11.6 数据隔离更新
-    let records = JSON.parse(localStorage.getItem('led_repair_v116') || '[]');
+    // v11.7 数据键值更新
+    let records = JSON.parse(localStorage.getItem('led_repair_v117') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
@@ -205,7 +212,6 @@
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`);
             const data = await resp.json();
-            
             if(data.result === "success") {
                 currentUser = user; currentRole = data.role;
                 localStorage.setItem('repair_user', user); localStorage.setItem('repair_role', currentRole);
@@ -219,30 +225,38 @@
     async function syncWorkerData() {
         if(currentRole !== 'worker') return;
         const status = document.getElementById('sync_status_bar');
-        status.style.display = 'block'; status.innerText = "Syncing History...";
+        status.style.display = 'block'; status.innerText = "Syncing...";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getWorkerData&user=${encodeURIComponent(currentUser)}`);
             const serverData = await resp.json(); 
-            const serverRecords = serverData.map(parseServerRow);
-            
-            // 1. 本地去重
-            const unsyncedRecords = records.filter(r => r.synced === false);
-            
-            // 2. 云端去重 (ID为Key，确保取最新的)
-            const serverMap = new Map();
-            serverRecords.forEach(r => serverMap.set(r.id, r));
-            const uniqueServerRecords = Array.from(serverMap.values());
+            // 2. 解析服务器数据 (A=0, B=1, ... G=6, H=7)
+            const serverRecords = serverData.map(row => {
+                const faultsArr = [];
+                const detailStr = String(row[3]); 
+                if(detailStr) detailStr.split('; ').forEach(p => { const [t, q] = p.split('*'); faultsArr.push({ type: t, qty: parseInt(q)||1, unitPrice: priceMap[t]||0 }); });
+                
+                let rowOwner = (row.length > 7) ? row[7] : row[5]; // 如果没有 Owner(H列), 用 User(F列)
+                
+                return {
+                    time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
+                    moduleTotal: parseFloat(row[4]), user: row[5], id: row[6],
+                    owner: rowOwner, photos: [], synced: true
+                };
+            });
 
-            // 3. 合并
+            // 3. 去重合并 (保留服务器最新版 + 本地未同步版)
+            const unsyncedRecords = records.filter(r => r.synced === false);
+            const serverMap = new Map();
+            serverRecords.forEach(r => serverMap.set(r.id, r)); // ID相同，后盖前
+            const uniqueServerRecords = Array.from(serverMap.values());
+            
             const merged = [...unsyncedRecords];
             uniqueServerRecords.forEach(srvRec => { 
-                if (!merged.find(m => m.id == srvRec.id)) {
-                    merged.push(srvRec);
-                }
+                if (!merged.find(m => m.id == srvRec.id)) merged.push(srvRec); 
             });
             
             records = merged;
-            localStorage.setItem('led_repair_v116', JSON.stringify(records));
+            localStorage.setItem('led_repair_v117', JSON.stringify(records));
             status.innerText = "Done!"; setTimeout(() => { status.style.display='none'; }, 2000);
             if(document.getElementById('page_list').classList.contains('active')) renderWorkerRMAList();
         } catch(e) { status.innerText = "Sync Failed"; setTimeout(() => { status.style.display='none'; }, 3000); }
@@ -260,6 +274,7 @@
         } catch (e) { container.innerHTML = "Load Failed"; }
     }
 
+    // 管理员点击卡片 -> 进入编辑界面
     function renderAdminCards(list) {
         const container = document.getElementById('admin_rma_list_container');
         if(list.length === 0) { container.innerHTML = "<p>No Data</p>"; return; }
@@ -281,56 +296,44 @@
         currentRMA = rmaName;
         records = records.filter(r => r.rma !== rmaName); 
         showPage('page_entry');
-        document.querySelector('#recordTable tbody').innerHTML = "<tr><td colspan='7' style='text-align:center'>正在从云端拉取完整数据...</td></tr>";
+        document.querySelector('#recordTable tbody').innerHTML = "<tr><td colspan='7' style='text-align:center'>正在从云端拉取数据...</td></tr>";
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
             const data = await resp.json();
             
-            const serverRecords = data.map(parseServerRow);
+            const serverRecords = data.map(row => {
+                const faultsArr = [];
+                const detailStr = String(row[3]); 
+                if(detailStr) detailStr.split('; ').forEach(p => { const [t, q] = p.split('*'); faultsArr.push({ type: t, qty: parseInt(q)||1, unitPrice: priceMap[t]||0 }); });
+                
+                let rowOwner = (row.length > 7) ? row[7] : row[5];
+
+                return {
+                    time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
+                    moduleTotal: parseFloat(row[4]), user: row[5], id: row[6],
+                    owner: rowOwner, photos: [], synced: true
+                };
+            });
+
             const map = new Map();
             serverRecords.forEach(r => map.set(r.id, r));
-            const uniqueRecords = Array.from(map.values());
-
-            records = [...records, ...uniqueRecords];
-            localStorage.setItem('led_repair_v116', JSON.stringify(records));
+            records = [...records, ...Array.from(map.values())];
+            
+            localStorage.setItem('led_repair_v117', JSON.stringify(records));
             renderEntryTable();
-        } catch (e) { alert("数据拉取失败"); }
-    }
-
-    function parseServerRow(row) {
-        const faultsArr = [];
-        const detailStr = String(row[3]); 
-        if(detailStr) {
-            detailStr.split('; ').forEach(part => {
-                const [type, qty] = part.split('*');
-                const unitP = priceMap[type] || 0;
-                faultsArr.push({ type: type, qty: parseInt(qty)||1, unitPrice: unitP });
-            });
-        }
-        
-        // H列(索引7)是Owner, F列(索引5)是User
-        let rawOwner = (row.length > 7) ? row[7] : "";
-        let rawUser = row[5];
-        
-        return {
-            time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
-            moduleTotal: parseFloat(row[4]), user: rawUser, id: row[6],
-            owner: (rawOwner && rawOwner !== "") ? rawOwner : rawUser, // 优先读取 Owner
-            photos: [], synced: true
-        };
+        } catch (e) { alert("Error loading data"); }
     }
 
     function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
-        // 显示 owner 或 user 是我的数据
         const myRMAs = [...new Set(records.filter(r => r.user === currentUser || r.owner === currentUser).map(r => r.rma))];
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
     }
     
     async function deleteEntireRMA(rma) {
-        if(confirm(`⚠️ Delete RMA [${rma}] completely?`)) {
+        if(confirm(`⚠️ Delete RMA [${rma}]?`)) {
             records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v116', JSON.stringify(records));
+            localStorage.setItem('led_repair_v117', JSON.stringify(records));
             renderWorkerRMAList();
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
         }
@@ -395,26 +398,27 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
-        // 【关键修复】确保 Owner 归属不会被篡改
-        let recordUser = currentUser; // 最后修改者是当前登录人
-        let recordOwner = currentUser; // 默认拥有者是当前登录人
+        // 【关键修复】Owner 保护逻辑
+        let recordUser = currentUser; // 谁在点保存，User 就是谁
+        let recordOwner = currentUser; // 默认 Owner 是自己
         
         if (editingId) {
             const originalRec = records.find(r => r.id === editingId);
             if (originalRec) {
-                // 如果原始记录有 owner，必须继承 owner
+                // 如果这条记录原来就有 Owner，绝不能改，必须继承
                 if (originalRec.owner && originalRec.owner !== "") {
                     recordOwner = originalRec.owner;
                 } else {
-                    // 兼容旧数据：如果没有 owner 字段，那么当时的 user 就是 owner
+                    // 如果旧记录没有 Owner 字段，那么以前的 User 就是 Owner
                     recordOwner = originalRec.user;
                 }
             }
         }
 
         const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: recordUser, owner: recordOwner, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
+        
         if(editingId!==null) records[records.findIndex(r=>r.id===editingId)] = data; else records.push(data);
-        localStorage.setItem('led_repair_v116', JSON.stringify(records));
+        localStorage.setItem('led_repair_v117', JSON.stringify(records));
 
         try {
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
@@ -422,23 +426,18 @@
                 details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, user: data.user, owner: data.owner 
             })});
             const savedRecord = records.find(r => r.id === data.id);
-            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v116', JSON.stringify(records)); }
+            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v117', JSON.stringify(records)); }
         } catch(e){}
         cancelEdit(); renderEntryTable(); btn.disabled = false; btn.innerText = "Save & Sync Cloud";
     }
 
-    async function deleteModule(idx, btnElement) {
+    async function deleteModule(idx, btn) {
         const r = records[idx];
         if(confirm(`Delete [${r.barcode}]?`)) {
-            // UI 反馈
-            if(btnElement) { 
-                btnElement.innerText = "Deleting..."; 
-                btnElement.disabled = true; 
-                btnElement.style.opacity = "0.6";
-            }
+            if(btn) { btn.innerText = "Deleting..."; btn.disabled = true; }
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) }); } catch(e){}
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v116', JSON.stringify(records));
+            localStorage.setItem('led_repair_v117', JSON.stringify(records));
             renderEntryTable();
         }
     }
