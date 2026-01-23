@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v12.1 (F列物理锁定版)</title>
+    <title>LED维修管理系统 v12.2 (F列创建人/H列操作员)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -141,7 +141,7 @@
         </div>
 
         <div id="input_area" class="no-print">
-            <input type="hidden" id="locked_origin_user" value="">
+            <input type="hidden" id="locked_creator" value="">
 
             <label>1. 模组条码</label>
             <input type="text" id="barcode" placeholder="扫描或输入SN码">
@@ -174,7 +174,8 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    let records = JSON.parse(localStorage.getItem('led_repair_v121') || '[]');
+    // v12.2 数据结构：r.creator (F列), r.user (H列 - 实际显示的操作员)
+    let records = JSON.parse(localStorage.getItem('led_repair_v122') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
@@ -215,7 +216,6 @@
 
     function logout() { localStorage.removeItem('repair_user'); localStorage.removeItem('repair_role'); location.reload(); }
 
-    // --- 管理员逻辑 ---
     async function loadAdminRMAList() {
         const container = document.getElementById('admin_rma_list_container');
         container.innerHTML = "<p style='text-align:center'>Loading...</p>";
@@ -243,14 +243,14 @@
         renderAdminCards(allAdminRMAs.filter(i => i.name.toLowerCase().includes(kw) || String(i.worker).toLowerCase().includes(kw)));
     }
 
-    // --- 维修员逻辑 ---
+    // --- 统一数据拉取 ---
     function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
-        const myRMAs = [...new Set(records.filter(r => r.user === currentUser).map(r => r.rma))];
+        // 显示 F列(Creator) 是我，或者 H列(User) 是我的
+        const myRMAs = [...new Set(records.filter(r => r.creator === currentUser || r.user === currentUser).map(r => r.rma))];
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="loadRMAAndShow('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="loadRMAAndShow('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
     }
     
-    // 统一数据拉取入口
     async function loadRMAAndShow(rmaName) {
         currentRMA = rmaName;
         showPage('page_entry');
@@ -264,31 +264,30 @@
             const serverMap = new Map();
             serverRecords.forEach(r => serverMap.set(r.id, r));
             
+            // 保留本地未同步的新建数据
             const localUnsynced = records.filter(r => r.rma === rmaName && r.synced === false);
             const otherRMARecords = records.filter(r => r.rma !== rmaName);
-            
-            // 合并
             const currentRMARecords = [...Array.from(serverMap.values()), ...localUnsynced];
             
             records = [...otherRMARecords, ...currentRMARecords];
-            localStorage.setItem('led_repair_v121', JSON.stringify(records));
+            localStorage.setItem('led_repair_v122', JSON.stringify(records));
             renderEntryTable();
-        } catch (e) { 
-            alert("同步失败，显示本地缓存"); 
-            renderEntryTable(); 
-        }
+        } catch (e) { alert("同步失败，显示本地缓存"); renderEntryTable(); }
     }
 
     async function deleteEntireRMA(rma) {
         if(confirm(`⚠️ Delete RMA [${rma}]?`)) {
             records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v121', JSON.stringify(records));
+            localStorage.setItem('led_repair_v122', JSON.stringify(records));
             renderWorkerRMAList();
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
         }
     }
 
+    // 【核心解析逻辑】
     function parseServerRow(row) {
+        // row[5] = F列 (Creator)
+        // row[7] = H列 (Modifier)
         const faultsArr = [];
         const detailStr = String(row[3]); 
         if(detailStr) {
@@ -299,15 +298,15 @@
             });
         }
         
-        // H列(索引7)是 Modifier, F列(索引5)是 User
-        let rawModifier = (row.length > 7) ? row[7] : "";
-        let rawUser = row[5];
+        let f_creator = row[5];
+        let h_modifier = (row.length > 7 && row[7]) ? row[7] : "";
         
         return {
             time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
-            moduleTotal: parseFloat(row[4]), user: rawUser, id: row[6],
-            modifier: rawModifier, 
-            photos: [], synced: true
+            moduleTotal: parseFloat(row[4]), 
+            creator: f_creator,           // 内部逻辑：F列永远是创建者
+            user: h_modifier || f_creator, // 显示逻辑：优先显示H列，没有则显示F列
+            id: row[6], photos: [], synced: true
         };
     }
 
@@ -329,7 +328,7 @@
             document.querySelectorAll('.report-title-block').forEach(el => el.style.display = 'none');
         }
         if(id === 'page_list') renderWorkerRMAList();
-        if(id === 'page_entry') { if(editingId===null) resetForm(); /* table rendered by loadRMA */ }
+        if(id === 'page_entry') { if(editingId===null) resetForm(); }
     }
 
     function goBack() { if(currentRole === 'admin') { showPage('page_admin'); } else { showPage('page_list'); } }
@@ -355,11 +354,13 @@
         row.querySelector('.f_price_display').value = (unitPrice * qty).toFixed(2);
     }
 
+    // 【核心修正：保存逻辑】
     async function saveRecord() {
         const sn = document.getElementById('barcode').value.trim();
         if(!sn) return alert("Barcode Required");
         const btn = document.getElementById('submitBtn');
         btn.disabled = true; btn.innerText = "Syncing...";
+        
         let faults=[], total=0;
         document.querySelectorAll('.fault-row').forEach(row => {
             let t = row.querySelector('.f_type').value;
@@ -369,33 +370,43 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
-        // 【终极锁定】优先读取隐藏框中的名字，如果隐藏框为空(新建时)，则用当前人
-        const lockedUser = document.getElementById('locked_origin_user').value;
-        const payloadUser = lockedUser ? lockedUser : currentUser;
-        
-        // Modifier 永远是当前操作者
-        const payloadModifier = currentUser;
+        // 1. 确定 F列 (Creator)
+        // 逻辑：新建时，是当前人。编辑时，必须从隐藏框读取原作者，绝对不能变！
+        let finalCreator = currentUser; 
+        if (editingId) {
+            // 编辑模式：从锁定框读取。如果锁定框空了（意外），回退到当前人
+            const locked = document.getElementById('locked_creator').value;
+            if (locked) finalCreator = locked;
+        }
 
-        const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: payloadUser, modifier: payloadModifier, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
+        // 2. 确定 H列 (Modifier/User)
+        // 逻辑：永远是当前操作者 (管理员或维修员自己)
+        let finalModifier = currentUser;
+
+        const data = { 
+            id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, 
+            creator: finalCreator, // 本地保存一份 Creator
+            user: finalModifier,   // 本地保存一份 Modifier (用于立刻显示)
+            time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false 
+        };
         
         if(editingId!==null) {
-            // 注意：这里更新本地记录时，也要把 user 更新为 payloadUser，防止本地显示出错
             const idx = records.findIndex(r => String(r.id) === String(editingId));
             if(idx !== -1) records[idx] = data;
         } else {
             records.push(data);
         }
-        localStorage.setItem('led_repair_v121', JSON.stringify(records));
+        localStorage.setItem('led_repair_v122', JSON.stringify(records));
 
         try {
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
                 action: "save", time: data.time, id: data.id, rma: data.rma, barcode: data.barcode, 
                 details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, 
-                user: payloadUser,        // F列：物理锁定值
-                modifier: payloadModifier // H列：修改者
+                user: finalCreator,     // 发给后端 F 列 (Creator)
+                modifier: finalModifier // 发给后端 H 列 (Modifier)
             })});
             const savedRecord = records.find(r => r.id === data.id);
-            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v121', JSON.stringify(records)); }
+            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v122', JSON.stringify(records)); }
         } catch(e){}
         cancelEdit(); renderEntryTable(); btn.disabled = false; btn.innerText = "Save & Sync Cloud";
     }
@@ -406,7 +417,7 @@
             if(btn) { btn.innerText = "Deleting..."; btn.disabled = true; btn.style.opacity="0.6"; }
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) }); } catch(e){}
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v121', JSON.stringify(records));
+            localStorage.setItem('led_repair_v122', JSON.stringify(records));
             renderEntryTable();
         }
     }
@@ -419,10 +430,12 @@
             grandTotal += r.moduleTotal;
             const realIdx = records.indexOf(r);
             
-            // UI 显示逻辑
-            let userDisplay = `<small style="color:#666">${r.user}</small>`;
-            if (r.modifier && r.modifier !== r.user) {
-                userDisplay += `<br><small style="color:red; font-size:9px;">Last edit: ${r.modifier}</small>`;
+            // 显示逻辑：如果 Creator 和 Modifier 不一样，显示 Modifier，并备注 Created by...
+            // 或者简单点，直接显示 Modifier (即 data.user 字段)
+            // 按照您的要求：User 列调用 H 列 (r.user)
+            let displayUser = `<b>${r.user}</b>`;
+            if (r.creator && r.creator !== r.user) {
+                displayUser += `<br><small style="color:#999">Created by: ${r.creator}</small>`;
             }
 
             return `<tr><td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">Synced</span>':'<span class="sync-badge not-synced">Local</span>'}<br><small>${r.time}</small></td>
@@ -432,7 +445,7 @@
                     <button class="btn-action btn-outline" onclick="editIt(${realIdx})">Edit</button>
                     <button class="btn-action btn-danger" onclick="deleteModule(${realIdx}, this)">Del</button>
                 </td>
-                <td>${userDisplay}</td></tr>`;
+                <td>${displayUser}</td></tr>`;
         }).reverse().join('');
         document.getElementById('grand_total_display').innerText = `$${grandTotal.toFixed(2)}`;
     }
@@ -441,8 +454,8 @@
         const r = records[idx]; editingId = r.id;
         document.getElementById('barcode').value = r.barcode;
         
-        // 【核心】点击编辑时，将 User 塞入隐藏框
-        document.getElementById('locked_origin_user').value = r.user;
+        // 【物理锁定】把 Creator (F列) 放入隐藏框
+        document.getElementById('locked_creator').value = r.creator;
 
         tempPhotos = [...r.photos]; renderPhotoGrid();
         document.getElementById('faults_container').innerHTML = "";
@@ -455,9 +468,7 @@
     function cancelEdit() { 
         editingId=null; 
         document.getElementById('barcode').value=""; 
-        // 重置时清空隐藏框
-        document.getElementById('locked_origin_user').value = "";
-        
+        document.getElementById('locked_creator').value = ""; // 清空锁定
         tempPhotos=[]; renderPhotoGrid(); resetFaultRows(); 
         document.getElementById('submitBtn').innerText="Save & Sync Cloud"; 
         document.getElementById('cancelEditBtn').classList.add('hidden'); 
