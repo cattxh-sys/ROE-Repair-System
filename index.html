@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED维修管理系统 v11.4 (同步修复版)</title>
+    <title>LED维修管理系统 v11.6 (归属权终极修复)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -11,6 +11,8 @@
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); max-width: 850px; margin: auto; min-height: 90vh; }
         .page { display: none; }
         .page.active { display: block; }
+        
+        /* UI Components */
         .user-bar { background: #3a3a3c; color: white; padding: 12px 15px; border-radius: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
         .info-bar { background: var(--primary); color: white; padding: 12px; border-radius: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
         label { display: block; margin: 15px 0 5px; font-weight: 600; color: #3a3a3c; }
@@ -24,6 +26,7 @@
         .btn-danger { background: var(--danger); color: white; }
         .btn-outline { background: none; color: var(--primary); border: 1px solid var(--primary); }
         .btn-action { padding: 6px 12px; font-size: 13px; margin-left: 5px; border-radius: 6px; }
+        
         .fault-row { background: #f0f0f5; padding: 12px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid var(--primary); }
         .flex-container { display: flex; gap: 8px; align-items: center; }
         .col-main { flex: 2.2; }
@@ -36,6 +39,7 @@
         .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
         .photo-item { position: relative; width: 100%; aspect-ratio: 1; border: 2px dashed #d1d1d6; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f9f9fb; cursor: pointer; }
         .photo-item img { width: 100%; height: 100%; object-fit: cover; }
+        
         table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 20px; }
         th, td { border-bottom: 1px solid #e5e5ea; padding: 12px 8px; text-align: left; }
         .total-row { background: #f2f2f7; font-weight: bold; color: var(--danger); }
@@ -169,8 +173,8 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    // v11.4 数据键值更新
-    let records = JSON.parse(localStorage.getItem('led_repair_v114') || '[]');
+    // v11.6 数据隔离更新
+    let records = JSON.parse(localStorage.getItem('led_repair_v116') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
     let currentRMA = "", editingId = null;
@@ -201,6 +205,7 @@
         try {
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`);
             const data = await resp.json();
+            
             if(data.result === "success") {
                 currentUser = user; currentRole = data.role;
                 localStorage.setItem('repair_user', user); localStorage.setItem('repair_role', currentRole);
@@ -211,7 +216,6 @@
         finally { btn.disabled = false; btn.innerText = "Login"; }
     }
 
-    // 【核心修复】同步逻辑升级：去重保留最新版本
     async function syncWorkerData() {
         if(currentRole !== 'worker') return;
         const status = document.getElementById('sync_status_bar');
@@ -221,27 +225,24 @@
             const serverData = await resp.json(); 
             const serverRecords = serverData.map(parseServerRow);
             
-            // 1. 获取本地还未同步的新数据
+            // 1. 本地去重
             const unsyncedRecords = records.filter(r => r.synced === false);
             
-            // 2. 建立 Map 对云端数据进行 ID 去重（后来的覆盖前面的，确保取最新版）
+            // 2. 云端去重 (ID为Key，确保取最新的)
             const serverMap = new Map();
             serverRecords.forEach(r => serverMap.set(r.id, r));
-            
-            // 3. 将 Map 转回数组
             const uniqueServerRecords = Array.from(serverMap.values());
 
-            // 4. 合并：本地未同步 + 云端最新
+            // 3. 合并
             const merged = [...unsyncedRecords];
             uniqueServerRecords.forEach(srvRec => { 
-                // 如果本地未同步里没有这个ID，才加入云端的（防止覆盖本地刚写的）
                 if (!merged.find(m => m.id == srvRec.id)) {
                     merged.push(srvRec);
                 }
             });
             
             records = merged;
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v116', JSON.stringify(records));
             status.innerText = "Done!"; setTimeout(() => { status.style.display='none'; }, 2000);
             if(document.getElementById('page_list').classList.contains('active')) renderWorkerRMAList();
         } catch(e) { status.innerText = "Sync Failed"; setTimeout(() => { status.style.display='none'; }, 3000); }
@@ -285,14 +286,13 @@
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getRMADetail&rma=${encodeURIComponent(rmaName)}`);
             const data = await resp.json();
             
-            // 管理员拉取也要去重，取最新
             const serverRecords = data.map(parseServerRow);
             const map = new Map();
             serverRecords.forEach(r => map.set(r.id, r));
             const uniqueRecords = Array.from(map.values());
 
             records = [...records, ...uniqueRecords];
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v116', JSON.stringify(records));
             renderEntryTable();
         } catch (e) { alert("数据拉取失败"); }
     }
@@ -307,16 +307,22 @@
                 faultsArr.push({ type: type, qty: parseInt(qty)||1, unitPrice: unitP });
             });
         }
+        
+        // H列(索引7)是Owner, F列(索引5)是User
+        let rawOwner = (row.length > 7) ? row[7] : "";
+        let rawUser = row[5];
+        
         return {
             time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
-            moduleTotal: parseFloat(row[4]), user: row[5], id: row[6],
-            owner: (row.length > 7) ? row[7] : row[5], 
+            moduleTotal: parseFloat(row[4]), user: rawUser, id: row[6],
+            owner: (rawOwner && rawOwner !== "") ? rawOwner : rawUser, // 优先读取 Owner
             photos: [], synced: true
         };
     }
 
     function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
+        // 显示 owner 或 user 是我的数据
         const myRMAs = [...new Set(records.filter(r => r.user === currentUser || r.owner === currentUser).map(r => r.rma))];
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
     }
@@ -324,7 +330,7 @@
     async function deleteEntireRMA(rma) {
         if(confirm(`⚠️ Delete RMA [${rma}] completely?`)) {
             records = records.filter(r => r.rma !== rma);
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v116', JSON.stringify(records));
             renderWorkerRMAList();
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "deleteRMA", rma: rma }) }); } catch(e) {}
         }
@@ -389,18 +395,26 @@
             faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
         });
 
-        let recordUser = currentUser;
-        let recordOwner = currentUser;
+        // 【关键修复】确保 Owner 归属不会被篡改
+        let recordUser = currentUser; // 最后修改者是当前登录人
+        let recordOwner = currentUser; // 默认拥有者是当前登录人
+        
         if (editingId) {
             const originalRec = records.find(r => r.id === editingId);
             if (originalRec) {
-                recordOwner = originalRec.owner || originalRec.user;
+                // 如果原始记录有 owner，必须继承 owner
+                if (originalRec.owner && originalRec.owner !== "") {
+                    recordOwner = originalRec.owner;
+                } else {
+                    // 兼容旧数据：如果没有 owner 字段，那么当时的 user 就是 owner
+                    recordOwner = originalRec.user;
+                }
             }
         }
 
         const data = { id: editingId||Date.now(), rma: currentRMA, barcode: sn, faults, moduleTotal: total, user: recordUser, owner: recordOwner, time: new Date().toLocaleString(), photos: [...tempPhotos], synced: false };
         if(editingId!==null) records[records.findIndex(r=>r.id===editingId)] = data; else records.push(data);
-        localStorage.setItem('led_repair_v114', JSON.stringify(records));
+        localStorage.setItem('led_repair_v116', JSON.stringify(records));
 
         try {
             await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({
@@ -408,21 +422,23 @@
                 details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), total: data.moduleTotal, user: data.user, owner: data.owner 
             })});
             const savedRecord = records.find(r => r.id === data.id);
-            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v114', JSON.stringify(records)); }
+            if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v116', JSON.stringify(records)); }
         } catch(e){}
         cancelEdit(); renderEntryTable(); btn.disabled = false; btn.innerText = "Save & Sync Cloud";
     }
 
-    // 【修复2】删除按钮反馈优化
     async function deleteModule(idx, btnElement) {
         const r = records[idx];
         if(confirm(`Delete [${r.barcode}]?`)) {
             // UI 反馈
-            if(btnElement) { btnElement.innerText = "Deleting..."; btnElement.disabled = true; }
-            
+            if(btnElement) { 
+                btnElement.innerText = "Deleting..."; 
+                btnElement.disabled = true; 
+                btnElement.style.opacity = "0.6";
+            }
             try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: "delete", id: r.id, rma: r.rma, barcode: r.barcode }) }); } catch(e){}
             records.splice(idx, 1);
-            localStorage.setItem('led_repair_v114', JSON.stringify(records));
+            localStorage.setItem('led_repair_v116', JSON.stringify(records));
             renderEntryTable();
         }
     }
