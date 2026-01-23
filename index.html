@@ -1,29 +1,3 @@
-明白。通过引入 **Owner（归属者/创建人）** 和 **User（当前操作员）** 的分离，可以完美解决“管理员修改后，维修员看不到单据”的问题，同时记录下实际修改人。
-
-以下是修改后的完整代码。我进行了以下核心更改：
-
-1. **数据结构更新 (`parseServerRow`)**：
-* 读取服务器数据的第 **H列 (索引 7)** 作为 `owner` (归属者)。
-* 读取服务器数据的第 **F列 (索引 5)** 作为 `user` (操作员)。
-* 增加了向后兼容逻辑：如果旧数据没有 Owner，默认 Owner = User。
-
-
-2. **保存逻辑更新 (`saveRecord`)**：
-* **User (操作员)**：永远强制设为 `currentUser` (即当前点击保存按钮的人，无论是管理员还是维修员)。
-* **Owner (归属者)**：
-* 如果是 **编辑模式**：保持原记录的 Owner 不变。
-* 如果是 **新建模式**：尝试查找该 RMA 是否已有其他记录。如果有，继承该 RMA 的 Owner；如果没有，Owner 设为当前用户。
-
-
-* **Fetch 请求**：在发送给 Google Script 的 JSON 数据中，新增了 `owner` 字段。*(注意：您需要在 Google Apps Script 端确保能接收并写入 H 列，这里我完成了前端的所有准备)*。
-
-
-3. **列表显示更新 (`renderWorkerRMAList`)**：
-* 维修员的列表筛选条件从 `r.user === currentUser` 改为了 `r.owner === currentUser`。这样即使管理员（User=Admin）修改了某条记录，维修员（Owner=Worker）依然能看到它。
-
-
-
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
