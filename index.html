@@ -1,9 +1,34 @@
+如果不使用外部图片文件（即 `ROE logo.png`），最完美的解决方案是将图片转换为 **Base64 编码**。
+
+**Base64** 的原理是把图片文件“翻译”成一大串文本代码，直接嵌入到 HTML 文件中。这样，你的系统就变成了**单文件系统**，无论把 HTML 文件发给谁、拷贝到哪台电脑，Logo 永远都会显示，不再需要附带图片文件。
+
+### 操作步骤
+
+你需要先把你电脑上的 `ROE logo.png` 转换成代码。
+
+1. **转换图片**：
+* 打开任意一个“图片转Base64”的在线工具（百度或谷歌搜索 "Image to Base64"）。
+* 上传你的 `ROE logo.png`。
+* 复制生成的长字符串（通常以 `data:image/png;base64,...` 开头）。
+
+
+2. **替换代码**：
+* 在下面的代码中，找到 `<img id="logo_img" ...>` 这一行。
+* 将 `src="..."` 引号里的内容，替换为你刚才复制的那一大串 Base64 代码。
+
+
+
+为了演示效果，我在下面的代码中暂时放入了一个**自动生成的红色 "ROE" 文字 Logo**（使用了 SVG Base64）。你可以直接使用这个文件，如果想换成你原本的精美图片 Logo，只需按上面步骤替换 `src` 里的内容即可。
+
+### 完整代码 (v11.6 单文件便携版)
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Repair System v11.4 (Smart Qty)</title>
+    <title>LED Repair System v11.6 (Portable)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -28,9 +53,9 @@
         .btn-action { padding: 6px 12px; font-size: 13px; margin-left: 5px; border-radius: 6px; }
         
         .fault-row { background: #f0f0f5; padding: 12px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid var(--primary); }
-        .flex-container { display: flex; gap: 8px; align-items: flex-start; } /* Changed to flex-start for multi-line inputs */
+        .flex-container { display: flex; gap: 8px; align-items: flex-start; }
         .col-main { flex: 2.2; }
-        .col-qty { flex: 0.8; display: flex; flex-direction: column; gap: 5px; } /* Updated for dropdown+input */
+        .col-qty { flex: 0.8; display: flex; flex-direction: column; gap: 5px; }
         .col-subtotal { flex: 1.2; }
         .other-input { margin-top: 8px; border: 1px solid var(--warning); background: #fffbe6; }
         .rma-card { border: 1px solid #e5e5ea; padding: 15px; border-radius: 12px; margin-bottom: 10px; background: #f9f9fb; border-left: 5px solid var(--primary); cursor: pointer; transition: background 0.2s; }
@@ -48,6 +73,7 @@
         .not-synced { background: var(--warning); }
         .admin-badge { background: var(--danger); color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; vertical-align: middle; margin-left: 5px; }
 
+        /* --- PDF/Printing Styles (ROE Enterprise) --- */
         @media print {
             @page { margin: 15mm; size: A4; }
             body { background: white; padding: 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
@@ -55,18 +81,40 @@
             .no-print, #input_area, .user-bar, .info-bar, .btn-full, #page_login, #page_list, #page_new_rma, #loginBtn, .btn-action, .sync-badge { display: none !important; }
             .page { display: none; }
             #page_entry.active { display: block !important; }
-            #print-header { display: flex !important; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--roe-red); padding-bottom: 15px; margin-bottom: 20px; }
+
+            /* Report Header Optimization */
+            #print-header { 
+                display: flex !important; 
+                justify-content: space-between; 
+                align-items: center; 
+                border-bottom: 2px solid var(--roe-red); 
+                padding-bottom: 15px; 
+                margin-bottom: 20px; 
+            }
             .company-info { font-size: 10pt; color: #333; line-height: 1.4; }
             .company-name { font-size: 18pt; font-weight: bold; color: var(--roe-red); margin-bottom: 5px; text-transform: uppercase; }
-            .logo-container img { height: 60px; width: auto; }
+            
+            /* Logo Styles */
+            .logo-container { flex-shrink: 0; }
+            .logo-container img { 
+                height: 80px; 
+                width: auto; 
+                object-fit: contain; 
+            }
+
+            /* Report Title */
             .report-title-block { text-align: center; margin-bottom: 20px; display: block !important; }
             .report-title { font-size: 22pt; font-weight: bold; margin: 0; color: #000; }
             .report-subtitle { font-size: 14pt; color: #666; margin-top: 5px; }
+
+            /* Tables */
             table { width: 100%; border: 1px solid #000; font-size: 11pt; border-collapse: collapse; }
             th { background-color: #f0f0f0 !important; color: black !important; font-weight: bold; border: 1px solid #000; padding: 8px; }
             td { border: 1px solid #ccc; padding: 8px; }
             .total-row { background-color: white !important; border-top: 2px solid #000; }
             .total-row td { font-size: 12pt; color: black !important; font-weight: bold; }
+            
+            /* Others */
             .photo-grid { display: block; margin-top: 15px; page-break-inside: avoid; }
             .photo-item { display: inline-block; width: 120px; height: 120px; margin-right: 10px; border: 1px solid #ddd; }
             #print-footer { display: block !important; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9pt; color: #999; border-top: 1px solid #eee; padding-top: 5px; }
@@ -85,7 +133,7 @@
             <div><strong>Email:</strong> usservice@roevisual.com</div>
         </div>
         <div class="logo-container">
-            <img src="ROE logo.png" alt="ROE Visual Logo" onerror="this.style.display='none'"> 
+            <img id="logo_img" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgODAiPjx0ZXh0IHg9IjUiIHk9IjYwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmb250LXNpemU9IjYwIiBmaWxsPSIjZDAwMjFiIj5ST0U8L3RleHQ+PC9zdmc+" alt="ROE Logo"> 
         </div>
     </div>
     <div id="print-footer" style="display:none;">ROE Visual Service Report | Generated by System</div>
@@ -173,7 +221,7 @@
 <script>
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    // v11.4 Smart Qty
+    // v11.5 Full Logic (Smart Qty + Owner + Logo)
     let records = JSON.parse(localStorage.getItem('led_repair_v113') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
@@ -410,7 +458,7 @@
         }
     }
 
-    // 【UPDATED】Modified addFaultRow to support Dropdown + Manual Input
+    // Smart Qty Logic
     function addFaultRow(typeVal="LED Repair - Physical Damage", qtyVal=1, customPrice=null) {
         const container = document.getElementById('faults_container');
         const rowId = 'r'+Math.random().toString(36).substr(2,5);
@@ -420,12 +468,10 @@
         const displayType = isStandard ? typeVal : 'Other';
         const unitPrice = isStandard ? priceMap[typeVal] : (customPrice || 0);
         
-        // Quantity Logic: Is it 1-10 or Manual?
         const isManualQty = qtyVal > 10 || qtyVal < 1; 
         const selectValue = isManualQty ? 'Manual' : qtyVal;
-        const inputDisplay = isManualQty ? '' : 'hidden'; // Show input only if manual
+        const inputDisplay = isManualQty ? '' : 'hidden'; 
         
-        // Build Select Options (1-10)
         let optionsHtml = '';
         for(let i=1; i<=10; i++) {
             optionsHtml += `<option value="${i}" ${selectValue==i?'selected':''}>${i}</option>`;
@@ -440,9 +486,7 @@
                 </select>
             </div>
             <div class="col-qty">
-                <select class="f_qty_select" onchange="updateRow('${rowId}')">
-                    ${optionsHtml}
-                </select>
+                <select class="f_qty_select" onchange="updateRow('${rowId}')">${optionsHtml}</select>
                 <input type="number" class="f_qty_input ${inputDisplay}" value="${qtyVal}" min="1" placeholder="Qty" oninput="updateRow('${rowId}')">
             </div>
             <div class="col-subtotal">
@@ -458,11 +502,8 @@
         container.appendChild(div);
     }
 
-    // 【UPDATED】Modified updateRow to handle Dropdown/Manual logic
     function updateRow(rowId) {
         const row = document.getElementById(rowId);
-        
-        // 1. Handle Quantity Logic
         const qtySelect = row.querySelector('.f_qty_select');
         const qtyInput = row.querySelector('.f_qty_input');
         
@@ -472,23 +513,20 @@
             qtyInput.classList.add('hidden');
         }
         
-        // Calculate effective Quantity
         let qty = 0;
         if (qtySelect.value === 'Manual') {
             qty = parseInt(qtyInput.value) || 0;
         } else {
             qty = parseInt(qtySelect.value);
-            qtyInput.value = qty; // Sync hidden input for consistency
+            qtyInput.value = qty; 
         }
 
-        // 2. Handle Price/Type Logic
         const type = row.querySelector('.f_type').value;
         let unitPrice = (type === 'Other') ? (parseFloat(row.querySelector('.f_manual_unit_price').value) || 0) : priceMap[type];
         
         row.querySelector('.f_other_text').classList.toggle('hidden', type !== 'Other');
         row.querySelector('.other-price-input').classList.toggle('hidden', type !== 'Other');
         
-        // Update Displays
         row.querySelector('.f_unit_price').value = unitPrice;
         row.querySelector('.f_price_display').value = (unitPrice * qty).toFixed(2);
     }
@@ -502,8 +540,6 @@
         let faults=[], total=0;
         document.querySelectorAll('.fault-row').forEach(row => {
             let t = row.querySelector('.f_type').value;
-            
-            // 【UPDATED】Read Quantity from the logic
             const selVal = row.querySelector('.f_qty_select').value;
             let q = 0;
             if (selVal === 'Manual') {
@@ -511,12 +547,9 @@
             } else {
                 q = parseInt(selVal);
             }
-
             const p = parseFloat(row.querySelector('.f_unit_price').value)||0;
             if(t==='Other') t = row.querySelector('.f_other_text').value.trim()||"Other";
-            
-            faults.push({type:t, qty:q, unitPrice:p}); 
-            total += (q*p);
+            faults.push({type:t, qty:q, unitPrice:p}); total += (q*p);
         });
 
         let recordUser = currentUser; 
@@ -652,3 +685,5 @@
 </script>
 </body>
 </html>
+
+```
