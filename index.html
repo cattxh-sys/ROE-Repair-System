@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Repair System v11.3 (Owner Logic)</title>
+    <title>LED Repair System v11.4 (Smart Qty)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #007aff; --success: #34c759; --danger: #ff3b30; --warning: #ff9500; --secondary: #8e8e93; --roe-red: #d0021b; }
@@ -28,9 +28,9 @@
         .btn-action { padding: 6px 12px; font-size: 13px; margin-left: 5px; border-radius: 6px; }
         
         .fault-row { background: #f0f0f5; padding: 12px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid var(--primary); }
-        .flex-container { display: flex; gap: 8px; align-items: center; }
+        .flex-container { display: flex; gap: 8px; align-items: flex-start; } /* Changed to flex-start for multi-line inputs */
         .col-main { flex: 2.2; }
-        .col-qty { flex: 0.8; }
+        .col-qty { flex: 0.8; display: flex; flex-direction: column; gap: 5px; } /* Updated for dropdown+input */
         .col-subtotal { flex: 1.2; }
         .other-input { margin-top: 8px; border: 1px solid var(--warning); background: #fffbe6; }
         .rma-card { border: 1px solid #e5e5ea; padding: 15px; border-radius: 12px; margin-bottom: 10px; background: #f9f9fb; border-left: 5px solid var(--primary); cursor: pointer; transition: background 0.2s; }
@@ -171,10 +171,9 @@
 </div>
 
 <script>
-    // ⚠️ 请将此 URL 替换为新部署的脚本 URL
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsFvoyLi5xzS4VR-j99DoymSfdRXRfI5wndSHGlEYsS-zvhv_nIdTkmhwE3QIoz1kmKw/exec"; 
 
-    // 本地存储键值更新，避免旧数据干扰
+    // v11.4 Smart Qty
     let records = JSON.parse(localStorage.getItem('led_repair_v113') || '[]');
     let currentUser = localStorage.getItem('repair_user') || "";
     let currentRole = localStorage.getItem('repair_role') || "worker";
@@ -238,11 +237,8 @@
         const status = document.getElementById('sync_status_bar');
         status.style.display = 'block'; status.innerText = "Syncing from Server...";
         try {
-            // 这里 user 参数传给后台，后台会优先匹配 H列(Owner)，其次匹配 F列(User)
             const resp = await fetch(`${GOOGLE_SCRIPT_URL}?action=getWorkerData&user=${encodeURIComponent(currentUser)}`);
             const serverData = await resp.json(); 
-            
-            // 合并策略：保留本地未同步的，合并云端新的
             const unsyncedRecords = records.filter(r => r.synced === false);
             const serverRecords = serverData.map(parseServerRow);
             
@@ -289,7 +285,6 @@
 
     async function adminEditRMA(rmaName) {
         currentRMA = rmaName;
-        // Admin 直接从云端拉取最新数据覆盖本地缓存，确保修改的是最新的
         records = records.filter(r => r.rma !== rmaName); 
         
         showPage('page_entry');
@@ -306,9 +301,7 @@
         } catch (e) { alert("Failed to fetch data"); }
     }
 
-    // 解析服务器数据行
     function parseServerRow(row) {
-        // Excel列索引: A=0, B=1, ... F=5(User), G=6(ID), H=7(Owner)
         const faultsArr = [];
         const detailStr = String(row[3] || ""); 
         if(detailStr) {
@@ -319,31 +312,22 @@
             });
         }
         
-        // 关键逻辑：获取 Owner
         let rowOwner = "";
-        if (row.length > 7 && row[7]) {
-            rowOwner = row[7]; // 如果 H 列有值，就是 Owner
-        } else {
-            rowOwner = row[5]; // 如果 H 列空（旧数据），User即Owner
-        }
+        if (row.length > 7 && row[7]) { rowOwner = row[7]; } 
+        else { rowOwner = row[5]; }
 
         return {
-            time: row[0], 
-            rma: row[1], 
-            barcode: row[2], 
-            faults: faultsArr,
+            time: row[0], rma: row[1], barcode: row[2], faults: faultsArr,
             moduleTotal: parseFloat(row[4] || 0), 
-            user: row[5],   // F列：User (操作人)
-            owner: rowOwner,// H列：Owner (归属人)
+            user: row[5],   
+            owner: rowOwner,
             id: row[6],
-            photos: [], 
-            synced: true
+            photos: [], synced: true
         };
     }
 
     function renderWorkerRMAList() {
         const container = document.getElementById('rma_list_container');
-        // 维修员本地只看属于自己的单 (Owner === currentUser)
         const myRMAs = [...new Set(records.filter(r => r.owner === currentUser).map(r => r.rma))];
         container.innerHTML = myRMAs.map(rma => `<div class="rma-card"><div class="rma-card-content"><div onclick="openRMA('${rma}')" style="flex:1;cursor:pointer;"><b>${rma}</b></div><div><button class="btn-action btn-outline" onclick="openRMA('${rma}')">Open</button><button class="btn-action btn-danger" onclick="deleteEntireRMA('${rma}')">Delete</button></div></div></div>`).join('') || '<p style="text-align:center">No Reports</p>';
     }
@@ -369,7 +353,6 @@
             const data = await resp.json();
             const serverRecords = data.map(parseServerRow);
 
-            // 合并逻辑：保留本地未同步的，加入云端的
             const otherRecords = records.filter(r => r.rma !== rmaName);
             const localUnsynced = records.filter(r => r.rma === rmaName && !r.synced);
             
@@ -400,7 +383,6 @@
             document.getElementById('print_rma_num_report').innerText = currentRMA;
             document.getElementById('print_block_report').style.display = 'block'; 
             
-            // 确保 User Bar 显示当前登录用户 (而不是记录里的 User)
             if(currentRole === 'admin') {
                 document.getElementById('display_user_entry').innerText = currentUser;
                 document.getElementById('admin_edit_badge').style.display = 'inline-block';
@@ -409,14 +391,12 @@
                 document.getElementById('admin_edit_badge').style.display = 'none';
             }
             
-            // 如果列表为空，默认加一行
             if(editingId === null) resetForm();
         } else {
             document.querySelectorAll('.report-title-block').forEach(el => el.style.display = 'none');
         }
 
         if(id === 'page_list') renderWorkerRMAList();
-        
         if(id === 'page_entry' && document.getElementById('faults_container').children.length === 0) {
             addFaultRow();
         }
@@ -430,23 +410,85 @@
         }
     }
 
+    // 【UPDATED】Modified addFaultRow to support Dropdown + Manual Input
     function addFaultRow(typeVal="LED Repair - Physical Damage", qtyVal=1, customPrice=null) {
         const container = document.getElementById('faults_container');
         const rowId = 'r'+Math.random().toString(36).substr(2,5);
         const div = document.createElement('div'); div.className='fault-row'; div.id=rowId;
+        
         const isStandard = priceMap.hasOwnProperty(typeVal) && typeVal !== 'Other';
         const displayType = isStandard ? typeVal : 'Other';
         const unitPrice = isStandard ? priceMap[typeVal] : (customPrice || 0);
-        div.innerHTML = `<div class="flex-container"><div class="col-main"><select class="f_type" onchange="updateRow('${rowId}')">${Object.keys(priceMap).map(k=>`<option value="${k}" ${displayType===k?'selected':''}>${k} ($${priceMap[k]})</option>`).join('')}</select></div><div class="col-qty"><input type="number" class="f_qty" value="${qtyVal}" min="1" oninput="updateRow('${rowId}')"></div><div class="col-subtotal"><input type="number" class="f_price_display" value="${(unitPrice*qtyVal).toFixed(2)}" readonly style="background:#f0f0f5;color:var(--danger);font-weight:bold;"><input type="hidden" class="f_unit_price" value="${unitPrice}"></div><div class="no-print" style="cursor:pointer;color:red;padding:0 5px;" onclick="this.parentElement.parentElement.remove()">✕</div></div><input type="text" class="f_other_text other-input ${displayType==='Other'?'':'hidden'}" placeholder="Description" value="${!isStandard?typeVal:''}"><div class="other-price-input ${displayType==='Other'?'':'hidden'}" style="margin-top:5px;"><input type="number" class="f_manual_unit_price" value="${unitPrice}" oninput="updateRow('${rowId}')" placeholder="Unit Price"></div>`;
+        
+        // Quantity Logic: Is it 1-10 or Manual?
+        const isManualQty = qtyVal > 10 || qtyVal < 1; 
+        const selectValue = isManualQty ? 'Manual' : qtyVal;
+        const inputDisplay = isManualQty ? '' : 'hidden'; // Show input only if manual
+        
+        // Build Select Options (1-10)
+        let optionsHtml = '';
+        for(let i=1; i<=10; i++) {
+            optionsHtml += `<option value="${i}" ${selectValue==i?'selected':''}>${i}</option>`;
+        }
+        optionsHtml += `<option value="Manual" ${selectValue==='Manual'?'selected':''}>Manual</option>`;
+
+        div.innerHTML = `
+        <div class="flex-container">
+            <div class="col-main">
+                <select class="f_type" onchange="updateRow('${rowId}')">
+                    ${Object.keys(priceMap).map(k=>`<option value="${k}" ${displayType===k?'selected':''}>${k} ($${priceMap[k]})</option>`).join('')}
+                </select>
+            </div>
+            <div class="col-qty">
+                <select class="f_qty_select" onchange="updateRow('${rowId}')">
+                    ${optionsHtml}
+                </select>
+                <input type="number" class="f_qty_input ${inputDisplay}" value="${qtyVal}" min="1" placeholder="Qty" oninput="updateRow('${rowId}')">
+            </div>
+            <div class="col-subtotal">
+                <input type="number" class="f_price_display" value="${(unitPrice*qtyVal).toFixed(2)}" readonly style="background:#f0f0f5;color:var(--danger);font-weight:bold;">
+                <input type="hidden" class="f_unit_price" value="${unitPrice}">
+            </div>
+            <div class="no-print" style="cursor:pointer;color:red;padding:0 5px;" onclick="this.parentElement.parentElement.remove()">✕</div>
+        </div>
+        <input type="text" class="f_other_text other-input ${displayType==='Other'?'':'hidden'}" placeholder="Description" value="${!isStandard?typeVal:''}">
+        <div class="other-price-input ${displayType==='Other'?'':'hidden'}" style="margin-top:5px;">
+            <input type="number" class="f_manual_unit_price" value="${unitPrice}" oninput="updateRow('${rowId}')" placeholder="Unit Price">
+        </div>`;
         container.appendChild(div);
     }
+
+    // 【UPDATED】Modified updateRow to handle Dropdown/Manual logic
     function updateRow(rowId) {
         const row = document.getElementById(rowId);
+        
+        // 1. Handle Quantity Logic
+        const qtySelect = row.querySelector('.f_qty_select');
+        const qtyInput = row.querySelector('.f_qty_input');
+        
+        if (qtySelect.value === 'Manual') {
+            qtyInput.classList.remove('hidden');
+        } else {
+            qtyInput.classList.add('hidden');
+        }
+        
+        // Calculate effective Quantity
+        let qty = 0;
+        if (qtySelect.value === 'Manual') {
+            qty = parseInt(qtyInput.value) || 0;
+        } else {
+            qty = parseInt(qtySelect.value);
+            qtyInput.value = qty; // Sync hidden input for consistency
+        }
+
+        // 2. Handle Price/Type Logic
         const type = row.querySelector('.f_type').value;
-        const qty = parseInt(row.querySelector('.f_qty').value) || 0;
         let unitPrice = (type === 'Other') ? (parseFloat(row.querySelector('.f_manual_unit_price').value) || 0) : priceMap[type];
+        
         row.querySelector('.f_other_text').classList.toggle('hidden', type !== 'Other');
         row.querySelector('.other-price-input').classList.toggle('hidden', type !== 'Other');
+        
+        // Update Displays
         row.querySelector('.f_unit_price').value = unitPrice;
         row.querySelector('.f_price_display').value = (unitPrice * qty).toFixed(2);
     }
@@ -456,35 +498,43 @@
         if(!sn) return alert("Barcode Required");
         const btn = document.getElementById('submitBtn');
         btn.disabled = true; btn.innerText = "Syncing...";
+        
         let faults=[], total=0;
         document.querySelectorAll('.fault-row').forEach(row => {
             let t = row.querySelector('.f_type').value;
-            const q = parseInt(row.querySelector('.f_qty').value)||0;
+            
+            // 【UPDATED】Read Quantity from the logic
+            const selVal = row.querySelector('.f_qty_select').value;
+            let q = 0;
+            if (selVal === 'Manual') {
+                q = parseInt(row.querySelector('.f_qty_input').value) || 0;
+            } else {
+                q = parseInt(selVal);
+            }
+
             const p = parseFloat(row.querySelector('.f_unit_price').value)||0;
             if(t==='Other') t = row.querySelector('.f_other_text').value.trim()||"Other";
-            faults.push({type:t, qty:q, unitPrice:p}); total+=(q*p);
+            
+            faults.push({type:t, qty:q, unitPrice:p}); 
+            total += (q*p);
         });
 
-        // --- 核心 User vs Owner 逻辑 ---
-        let recordUser = currentUser; // F列：User 永远是当前操作人 (可能是Admin也可能是Worker)
-        let recordOwner = currentUser; // H列：Owner 默认是当前人
+        let recordUser = currentUser; 
+        let recordOwner = currentUser; 
 
-        // 1. 如果是编辑现有记录，保持原 Owner 不变
         if (editingId) {
             const originalRec = records.find(r => r.id === editingId);
             if (originalRec && originalRec.owner) {
                 recordOwner = originalRec.owner;
             } else if (originalRec) {
-                recordOwner = originalRec.user; // 兼容旧数据
+                recordOwner = originalRec.user; 
             }
         } 
-        // 2. 如果是新建记录，尝试继承该 RMA 的 Owner
         else {
             const existingRmaRec = records.find(r => r.rma === currentRMA && r.owner);
             if (existingRmaRec) {
-                recordOwner = existingRmaRec.owner; // 比如 Admin 给 Worker 的 RMA 加单，Owner 还是 Worker
+                recordOwner = existingRmaRec.owner; 
             }
-            // 否则 Owner = currentUser (新建 RMA)
         }
 
         const data = { 
@@ -493,8 +543,8 @@
             barcode: sn, 
             faults, 
             moduleTotal: total, 
-            user: recordUser,   // Save to F
-            owner: recordOwner, // Save to H
+            user: recordUser,   
+            owner: recordOwner, 
             time: new Date().toLocaleString(), 
             photos: [...tempPhotos], 
             synced: false 
@@ -512,8 +562,8 @@
                 barcode: data.barcode, 
                 details: data.faults.map(f=>`${f.type}*${f.qty}`).join('; '), 
                 total: data.moduleTotal, 
-                user: data.user,   // 发送 F列 数据
-                owner: data.owner  // 发送 H列 数据
+                user: data.user,   
+                owner: data.owner  
             })});
             const savedRecord = records.find(r => r.id === data.id);
             if(savedRecord) { savedRecord.synced = true; localStorage.setItem('led_repair_v113', JSON.stringify(records)); }
@@ -552,7 +602,6 @@
         tbody.innerHTML = myData.map(r => {
             grandTotal += r.moduleTotal;
             const realIdx = records.indexOf(r);
-            // 表格中显示的是 r.user (最后操作人)，这样管理员修改后能看出来
             return `<tr><td><b>${r.barcode}</b> ${r.synced?'<span class="sync-badge synced">Synced</span>':'<span class="sync-badge not-synced">Local</span>'}<br><small>${r.time}</small></td>
                 <td>${r.faults.map(f=>f.type).join('<br>')}</td><td>${r.faults.map(f=>f.qty).join('<br>')}</td><td style="color:var(--danger)">$${r.moduleTotal.toFixed(2)}</td>
                 <td>${r.photos.map(p=>`<img src="${p}" style="width:35px;height:35px;object-fit:cover;">`).join('')}</td>
